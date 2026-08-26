@@ -39,6 +39,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Do not leave GITHUB_TOKEN credentials in the local Git config.
+          # Otherwise they override SYNC_TOKEN and the target sees
+          # github-actions[bot], which normally cannot write another repo.
+          persist-credentials: false
 
       - name: Mirror main to the target repository
         shell: bash
