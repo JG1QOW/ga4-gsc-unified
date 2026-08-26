@@ -19,9 +19,9 @@ ENV PORT=8080
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY server.js ./server.js
+COPY server ./server
 COPY --from=build /app/dist ./dist
 
 EXPOSE 8080
 
-CMD ["node", "server.js"]
+CMD ["node", "server/index.js"]

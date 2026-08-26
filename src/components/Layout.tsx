@@ -1,8 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
 const NAV_ITEMS = [
-  { to: '/page1', label: '空白ページ1' },
-  { to: '/page2', label: '空白ページ2' },
+  { to: '/settings', label: 'Settings' },
+  { to: '/analytics', label: 'Analytics' },
 ];
 
 export default function Layout() {
