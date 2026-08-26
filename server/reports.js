@@ -27,12 +27,26 @@ function hostFromSite(site) {
   if (!site) {
     return null;
   }
-  if (site.startsWith('sc-domain:')) {
-    return site.slice('sc-domain:'.length);
+  const raw = site.startsWith('sc-domain:')
+    ? site.slice('sc-domain:'.length)
+    : (site.match(/^https?:\/\/([^/]+)/) ?? [])[1];
+  if (!raw) {
+    return null;
   }
-  const host = site.match(/^https?:\/\/([^/]+)/);
-  return host ? host[1] : null;
+  return raw.toLowerCase().replace(/^www\./, '').replace(/\/.*$/, '');
 }
+
+function normalizedHost(expr) {
+  return `LOWER(REGEXP_REPLACE(${expr}, r'^www\\.', ''))`;
+}
+
+const NORM_PATH_UDF = `CREATE TEMP FUNCTION normPath(path STRING) RETURNS STRING LANGUAGE js AS r"""
+  if (!path) { return null; }
+  var p = path;
+  try { p = decodeURIComponent(p); } catch (e) {}
+  while (p.length > 1 && p.charAt(p.length - 1) === '/') { p = p.substring(0, p.length - 1); }
+  return p === '' ? '/' : p.toLowerCase();
+""";`;
 
 const GA4_EVENT_FIELDS = `
     CONCAT(
@@ -41,7 +55,7 @@ const GA4_EVENT_FIELDS = `
       CAST(IFNULL((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id'), 0) AS STRING)
     ) AS session_key,
     ${pagePath("(SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location')")} AS page_path,
-    ${pageHost("(SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location')")} AS page_host`;
+    ${normalizedHost(pageHost("(SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location')"))} AS page_host`;
 
 export const REPORTS = [
   {
@@ -62,6 +76,10 @@ export const REPORTS = [
       { key: 'clicks', label: 'クリック', type: 'number' },
       { key: 'peakDayOffset', label: 'ピーク(掲載後n日)', type: 'number' },
       { key: 'first3DaysClickRate', label: '最初3日のクリック比率', type: 'percent' },
+    ],
+    charts: [
+      { type: 'bar', title: 'クリック上位ページ', labelKey: 'page', valueKey: 'clicks' },
+      { type: 'scatter', title: '掲載期間とクリックの関係', xKey: 'spanDays', yKey: 'clicks', labelKey: 'page' },
     ],
     build: ({ project, gscDataset, startDate, endDate, site, threshold, limit }) => ({
       query: `
@@ -118,6 +136,10 @@ LIMIT @rowLimit`,
       { key: 'avgPosition', label: '平均順位', type: 'decimal' },
       { key: 'opportunityClicks', label: '改善余地(クリック)', type: 'decimal' },
     ],
+    charts: [
+      { type: 'bar', title: '改善余地の大きいページ', labelKey: 'page', valueKey: 'opportunityClicks' },
+      { type: 'scatter', title: '平均順位とCTRの関係', xKey: 'avgPosition', yKey: 'ctr', labelKey: 'page' },
+    ],
     build: ({ project, gscDataset, startDate, endDate, site, threshold, limit }) => ({
       query: `
 WITH agg AS (
@@ -173,8 +195,18 @@ LIMIT @rowLimit`,
       { key: 'avgEngagementSeconds', label: '平均滞在(秒)', type: 'decimal' },
       { key: 'scrollRate', label: 'スクロール到達率', type: 'percent' },
     ],
+    charts: [
+      { type: 'bar', title: 'エンゲージメント率上位ページ', labelKey: 'page', valueKey: 'engagementRate' },
+      {
+        type: 'scatter',
+        title: '検索クリックとエンゲージメント率の関係',
+        xKey: 'searchClicks',
+        yKey: 'engagementRate',
+        labelKey: 'page',
+      },
+    ],
     build: ({ project, ga4Dataset, gscDataset, startDate, endDate, site, threshold, limit }) => ({
-      query: `
+      query: `${NORM_PATH_UDF}
 WITH events AS (
   SELECT
     event_name,${GA4_EVENT_FIELDS},
@@ -183,39 +215,62 @@ WITH events AS (
   FROM ${ga4EventsTable({ project, ga4Dataset })}
   WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
 ),
-ga AS (
+ga_raw AS (
   SELECT
     page_path,
+    page_host,
     COUNT(DISTINCT session_key) AS sessions,
     COUNT(DISTINCT IF(session_engaged = '1', session_key, NULL)) AS engaged_sessions,
     COUNT(DISTINCT IF(event_name = 'scroll', session_key, NULL)) AS scroll_sessions,
-    SAFE_DIVIDE(SUM(engagement_msec) / 1000, COUNT(DISTINCT session_key)) AS avg_engagement_seconds
+    SUM(engagement_msec) / 1000 AS engagement_seconds
   FROM events
   WHERE page_path IS NOT NULL
     AND (@host IS NULL OR page_host = @host)
-  GROUP BY page_path
+  GROUP BY page_path, page_host
 ),
-sc AS (
+ga AS (
+  SELECT
+    normPath(page_path) AS page_key,
+    page_host,
+    SUM(sessions) AS sessions,
+    SUM(engaged_sessions) AS engaged_sessions,
+    SUM(scroll_sessions) AS scroll_sessions,
+    SUM(engagement_seconds) AS engagement_seconds
+  FROM ga_raw
+  GROUP BY page_key, page_host
+),
+sc_raw AS (
   SELECT
     ${pagePath('url')} AS page_path,
+    ${normalizedHost("REGEXP_EXTRACT(site_url, r'^(?:https?://|sc-domain:)?([^/]+)')")} AS page_host,
     SUM(clicks) AS clicks,
     SUM(IF(search_type = 'WEB', clicks, 0)) AS search_clicks,
     SUM(IF(search_type = 'DISCOVER', clicks, 0)) AS discover_clicks
   FROM ${urlImpressionTable({ project, gscDataset })}
   WHERE data_date BETWEEN PARSE_DATE('%Y-%m-%d', @startDate) AND PARSE_DATE('%Y-%m-%d', @endDate)
     AND (@site IS NULL OR site_url = @site)
-  GROUP BY page_path
+  GROUP BY page_path, page_host
+),
+sc AS (
+  SELECT
+    normPath(page_path) AS page_key,
+    page_host,
+    SUM(clicks) AS clicks,
+    SUM(search_clicks) AS search_clicks,
+    SUM(discover_clicks) AS discover_clicks
+  FROM sc_raw
+  GROUP BY page_key, page_host
 )
 SELECT
-  page_path AS page,
+  CONCAT(sc.page_host, sc.page_key) AS page,
   sc.search_clicks AS searchClicks,
   sc.discover_clicks AS discoverClicks,
   ga.sessions,
   SAFE_DIVIDE(ga.engaged_sessions, ga.sessions) AS engagementRate,
-  ga.avg_engagement_seconds AS avgEngagementSeconds,
+  SAFE_DIVIDE(ga.engagement_seconds, ga.sessions) AS avgEngagementSeconds,
   SAFE_DIVIDE(ga.scroll_sessions, ga.sessions) AS scrollRate
 FROM sc
-JOIN ga USING (page_path)
+LEFT JOIN ga USING (page_host, page_key)
 WHERE sc.clicks >= @threshold
 ORDER BY sc.clicks DESC
 LIMIT @rowLimit`,
@@ -256,6 +311,10 @@ LIMIT @rowLimit`,
       { key: 'onwardViews', label: '次ページ遷移', type: 'number' },
       { key: 'onwardRate', label: '回遊率', type: 'percent' },
       { key: 'exitRate', label: '離脱率', type: 'percent' },
+    ],
+    charts: [
+      { type: 'bar', title: '回遊率上位ページ', labelKey: 'page', valueKey: 'onwardRate' },
+      { type: 'scatter', title: 'ページビューと回遊率の関係', xKey: 'pageViews', yKey: 'onwardRate', labelKey: 'page' },
     ],
     build: ({ project, ga4Dataset, startDate, endDate, site, threshold, limit }) => ({
       query: `
@@ -307,16 +366,19 @@ LIMIT @rowLimit`,
 ];
 
 export function reportCatalog() {
-  return REPORTS.map(({ id, name, dataSource, insight, priority, thresholdLabel, defaultThreshold, columns }) => ({
-    id,
-    name,
-    dataSource,
-    insight,
-    priority,
-    thresholdLabel,
-    defaultThreshold,
-    columns,
-  }));
+  return REPORTS.map(
+    ({ id, name, dataSource, insight, priority, thresholdLabel, defaultThreshold, columns, charts }) => ({
+      id,
+      name,
+      dataSource,
+      insight,
+      priority,
+      thresholdLabel,
+      defaultThreshold,
+      columns,
+      charts,
+    }),
+  );
 }
 
 export function buildReportQuery(reportId, options) {
