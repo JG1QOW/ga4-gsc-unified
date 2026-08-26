@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import BarChart from '../components/BarChart';
+import ReportTable from '../components/ReportTable';
 import ScatterChart from '../components/ScatterChart';
 import {
   fetchReportCatalog,
@@ -10,7 +11,6 @@ import {
   type ReportResult,
   type SiteOption,
 } from '../lib/api';
-import { formatValue } from '../lib/format';
 import { isComplete, loadSettings } from '../lib/settings';
 
 function toDateInput(date: Date): string {
@@ -210,40 +210,7 @@ export default function Analytics() {
               </p>
             </div>
           </header>
-          <div className="table-wrapper">
-            <table className="table">
-              <thead>
-                <tr>
-                  {result.columns.map((column) => (
-                    <th key={column.key} className={column.type === 'text' || column.type === 'url' ? '' : 'is-numeric'}>
-                      {column.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.rows.map((row, index) => (
-                  <tr key={index}>
-                    {result.columns.map((column) => {
-                      const value = row[column.key] ?? null;
-                      const numeric = column.type !== 'text' && column.type !== 'url';
-                      return (
-                        <td key={column.key} className={numeric ? 'is-numeric' : ''}>
-                          {column.type === 'url' && typeof value === 'string' ? (
-                            <a href={value} target="_blank" rel="noreferrer">
-                              {value}
-                            </a>
-                          ) : (
-                            formatValue(value, column)
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ReportTable columns={result.columns} rows={result.rows} />
           {result.rows.length === 0 ? (
             <p className="card-text">
               条件に一致するページがありませんでした。しきい値を下げるか、期間を広げてください。
