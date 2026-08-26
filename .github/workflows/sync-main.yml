@@ -1,0 +1,51 @@
+name: Sync main to another repository
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-main-to-${{ vars.SYNC_TARGET_REPOSITORY }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Mirror main branch
+    runs-on: ubuntu-latest
+    env:
+      # Prefer a repository variable, but also accept a repository secret for
+      # installations that registered both sync settings as secrets.
+      TARGET_REPOSITORY: ${{ vars.SYNC_TARGET_REPOSITORY || secrets.SYNC_TARGET_REPOSITORY }}
+      SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+    steps:
+      - name: Validate configuration
+        shell: bash
+        run: |
+          if [[ ! "$TARGET_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ || "$TARGET_REPOSITORY" == *.git ]]; then
+            echo "::error::SYNC_TARGET_REPOSITORY is missing or invalid. In the source repository, open Settings > Secrets and variables > Actions > Variables, then set SYNC_TARGET_REPOSITORY to owner/repository (without a URL). A secret with the same name is also supported."
+            exit 1
+          fi
+          if [[ -z "$SYNC_TOKEN" ]]; then
+            echo "::error::Set the SYNC_TOKEN repository secret."
+            exit 1
+          fi
+
+      - name: Check out the complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Do not leave GITHUB_TOKEN credentials in the local Git config.
+          # Otherwise they override SYNC_TOKEN and the target sees
+          # github-actions[bot], which normally cannot write another repo.
+          persist-credentials: false
+
+      - name: Mirror main to the target repository
+        shell: bash
+        run: |
+          git remote add sync-target "https://x-access-token:${SYNC_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
+          git push --force sync-target HEAD:refs/heads/main
