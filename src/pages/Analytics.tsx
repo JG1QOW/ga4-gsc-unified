@@ -11,7 +11,7 @@ import {
   type ReportResult,
   type SiteOption,
 } from '../lib/api';
-import { isComplete, loadSettings } from '../lib/settings';
+import { activeSite, isComplete, loadStore, saveActiveSiteId, siteLabel } from '../lib/settings';
 
 function toDateInput(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -26,8 +26,11 @@ function defaultRange(): { startDate: string; endDate: string } {
 }
 
 export default function Analytics() {
-  const settings = useMemo(() => loadSettings(), []);
-  const configured = isComplete(settings);
+  const store = useMemo(() => loadStore(), []);
+  const [siteConfigId, setSiteConfigId] = useState<string>(() => activeSite(store)?.id ?? '');
+  const settings = store.sites.find((site) => site.id === siteConfigId) ?? null;
+  const configured = settings !== null && isComplete(settings);
+
   const [range, setRange] = useState(defaultRange);
   const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
   const [reportId, setReportId] = useState<string>('');
@@ -56,7 +59,7 @@ export default function Analytics() {
   }, []);
 
   useEffect(() => {
-    if (!configured) {
+    if (!configured || !settings) {
       return;
     }
     fetchSites(settings)
@@ -69,15 +72,26 @@ export default function Analytics() {
     setThreshold(null);
   }, [reportId]);
 
+  useEffect(() => {
+    setResult(null);
+    setSite('');
+    setSites([]);
+    if (siteConfigId) {
+      saveActiveSiteId(siteConfigId);
+    }
+  }, [siteConfigId]);
+
   const handleRun = async () => {
-    if (!selectedReport) {
+    if (!selectedReport || !settings) {
       return;
     }
     setLoading(true);
     setError(null);
     try {
       const report = await runReport(selectedReport.id, {
-        ...settings,
+        project: settings.project,
+        ga4Dataset: settings.ga4Dataset,
+        gscDataset: settings.gscDataset,
         startDate: range.startDate,
         endDate: range.endDate,
         site: site || null,
@@ -93,13 +107,13 @@ export default function Analytics() {
     }
   };
 
-  if (!configured) {
+  if (!configured || !settings) {
     return (
       <section className="card">
         <h2 className="card-title">Analytics</h2>
         <p className="card-text">
-          BigQuery の接続先が未設定です。<Link to="/settings">Settings</Link> で Project / GA4 Dataset / GSC Dataset
-          を保存してください。
+          BigQuery の接続先が未設定です。<Link to="/settings">Settings</Link> でサイト（Project / GA4 Dataset / GSC
+          Dataset）を保存してください。
         </p>
       </section>
     );
@@ -115,6 +129,22 @@ export default function Analytics() {
               {settings.project} ／ GA4: {settings.ga4Dataset} ／ GSC: {settings.gscDataset}
             </p>
           </div>
+          {store.sites.length > 1 ? (
+            <label className="filter">
+              <span className="filter-label">登録サイト</span>
+              <select
+                className="input"
+                value={siteConfigId}
+                onChange={(event) => setSiteConfigId(event.target.value)}
+              >
+                {store.sites.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {siteLabel(option)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </header>
 
         <div className="report-grid">
@@ -135,7 +165,7 @@ export default function Analytics() {
 
         <div className="filters">
           <label className="filter">
-            <span className="filter-label">サイト</span>
+            <span className="filter-label">GSC プロパティ</span>
             <select className="input" value={site} onChange={(event) => setSite(event.target.value)}>
               <option value="">すべて</option>
               {sites.map((option) => (
