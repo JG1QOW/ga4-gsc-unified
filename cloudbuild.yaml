@@ -1,0 +1,57 @@
+steps:
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'ensure-artifact-registry'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud artifacts repositories describe ga4-gsc-unified \
+          --location=asia-northeast1 --project=$PROJECT_ID \
+        || gcloud artifacts repositories create ga4-gsc-unified \
+          --repository-format=docker \
+          --location=asia-northeast1 \
+          --project=$PROJECT_ID \
+          --description="ga4-gsc-unified container images"
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build'
+    args: [
+      'build',
+      '-t', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/ga4-gsc-unified/app:$COMMIT_SHA',
+      '-t', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/ga4-gsc-unified/app:latest',
+      '.'
+    ]
+    waitFor: ['ensure-artifact-registry']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push'
+    args: [
+      'push',
+      '--all-tags',
+      'asia-northeast1-docker.pkg.dev/$PROJECT_ID/ga4-gsc-unified/app'
+    ]
+    waitFor: ['build']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy'
+    entrypoint: 'gcloud'
+    args: [
+      'run', 'deploy', 'ga4-gsc-unified',
+      '--image=asia-northeast1-docker.pkg.dev/$PROJECT_ID/ga4-gsc-unified/app:$COMMIT_SHA',
+      '--region=asia-northeast1',
+      '--platform=managed',
+      '--allow-unauthenticated',
+      '--cpu=1',
+      '--memory=1Gi',
+      '--timeout=3600s',
+      '--concurrency=30'
+    ]
+    waitFor: ['push']
+
+images:
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/ga4-gsc-unified/app:$COMMIT_SHA'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/ga4-gsc-unified/app:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
