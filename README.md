@@ -12,24 +12,27 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 
 | パス | 内容 |
 | --- | --- |
-| `/settings` | Project / GA4 Dataset / GSC Dataset を入力・保存 |
-| `/analytics` | 保存した設定の BigQuery データセットに対してレポートを実行 |
+| `/settings` | サイト（サイト名 / Project / GA4 Dataset / GSC Dataset）を複数登録 |
+| `/analytics` | 登録サイトを切り替えてレポートを実行 |
 
 サイドバーのメニューから 2 ページを切り替えられます。`/` は `/settings` にリダイレクトします。
 
 ### Settings
 
+サイトは複数登録でき、「サイトを追加」で行を増やしてまとめて保存します。
+
 | 項目 | 内容 |
 | --- | --- |
+| サイト名 | Analytics のサイト切替に表示する名前 |
 | Project | BigQuery のデータセットが存在する GCP プロジェクト ID |
 | GA4 Dataset | GA4 BigQuery Export のデータセット（`events_*` を含む） |
 | GSC Dataset | Search Console 一括データエクスポートのデータセット（`searchdata_url_impression` を含む） |
 
-設定はブラウザの localStorage（キー `ga4-gsc-unified:settings`）に保存され、Analytics のリクエストごとにサーバへ渡されます。サーバ側は状態を保持しません。
+設定はブラウザの localStorage（キー `ga4-gsc-unified:settings`）に `{ sites: [...], activeSiteId }` 形式で保存され（単一サイトの旧形式は読み込み時に自動移行）、Analytics のリクエストごとにサーバへ渡されます。サーバ側は状態を保持しません。
 
 ### Analytics
 
-サイト・期間・しきい値を指定してレポートを実行します。用意しているレポートは以下の 4 種です。
+登録サイト（複数登録している場合はヘッダのセレクトで切替、選択は保存されます）・GSC プロパティ・期間・しきい値を指定してレポートを実行します。用意しているレポートは以下の 4 種です。
 
 | レポート | データソース | 分析意図 |
 | --- | --- | --- |

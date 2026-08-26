@@ -4,29 +4,76 @@ export type Settings = {
   gscDataset: string;
 };
 
+export type SiteConfig = Settings & {
+  id: string;
+  name: string;
+};
+
+export type SettingsStore = {
+  sites: SiteConfig[];
+  activeSiteId: string | null;
+};
+
 const STORAGE_KEY = 'ga4-gsc-unified:settings';
 
 export const EMPTY_SETTINGS: Settings = { project: '', ga4Dataset: '', gscDataset: '' };
 
-export function loadSettings(): Settings {
+export function createSiteId(): string {
+  return `site-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function emptySite(): SiteConfig {
+  return { id: createSiteId(), name: '', ...EMPTY_SETTINGS };
+}
+
+function toSiteConfig(value: Partial<SiteConfig>): SiteConfig {
+  return {
+    id: typeof value.id === 'string' && value.id ? value.id : createSiteId(),
+    name: value.name ?? '',
+    project: value.project ?? '',
+    ga4Dataset: value.ga4Dataset ?? '',
+    gscDataset: value.gscDataset ?? '',
+  };
+}
+
+function normalizeStore(parsed: Partial<SettingsStore> & Partial<SiteConfig>): SettingsStore {
+  const sites = Array.isArray(parsed.sites) ? parsed.sites.map(toSiteConfig) : [];
+  if (sites.length === 0 && (parsed.project || parsed.ga4Dataset || parsed.gscDataset)) {
+    sites.push(toSiteConfig({ name: parsed.project ?? '', ...parsed }));
+  }
+  const activeSiteId =
+    typeof parsed.activeSiteId === 'string' && sites.some((site) => site.id === parsed.activeSiteId)
+      ? parsed.activeSiteId
+      : (sites[0]?.id ?? null);
+  return { sites, activeSiteId };
+}
+
+export function loadStore(): SettingsStore {
   const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) {
-    return EMPTY_SETTINGS;
+    return { sites: [], activeSiteId: null };
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    return {
-      project: parsed.project ?? '',
-      ga4Dataset: parsed.ga4Dataset ?? '',
-      gscDataset: parsed.gscDataset ?? '',
-    };
+    return normalizeStore(JSON.parse(raw) as Partial<SettingsStore> & Partial<SiteConfig>);
   } catch {
-    return EMPTY_SETTINGS;
+    return { sites: [], activeSiteId: null };
   }
 }
 
-export function saveSettings(settings: Settings): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+export function saveStore(store: SettingsStore): void {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+}
+
+export function saveActiveSiteId(activeSiteId: string | null): void {
+  saveStore({ ...loadStore(), activeSiteId });
+}
+
+export function activeSite(store: SettingsStore): SiteConfig | null {
+  return store.sites.find((site) => site.id === store.activeSiteId) ?? store.sites[0] ?? null;
+}
+
+export function siteLabel(site: SiteConfig): string {
+  return site.name || site.gscDataset || site.project || '(名称未設定)';
 }
 
 export function isComplete(settings: Settings): boolean {
@@ -43,6 +90,14 @@ export function validateSettings(settings: Settings): Partial<Record<keyof Setti
   }
   if (!/^[A-Za-z0-9_]+$/.test(settings.gscDataset)) {
     errors.gscDataset = '英数字とアンダースコアのみ使用できます';
+  }
+  return errors;
+}
+
+export function validateSite(site: SiteConfig): Partial<Record<keyof SiteConfig, string>> {
+  const errors: Partial<Record<keyof SiteConfig, string>> = validateSettings(site);
+  if (!site.name.trim()) {
+    errors.name = 'サイト名を入力してください';
   }
   return errors;
 }
