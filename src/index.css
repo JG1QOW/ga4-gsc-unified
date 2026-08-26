@@ -472,3 +472,42 @@ body {
   fill: var(--accent);
   fill-opacity: 0.7;
 }
+
+.table th {
+  padding: 0;
+}
+
+.table-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.table .is-numeric .table-sort {
+  justify-content: flex-end;
+}
+
+.table-sort:hover {
+  color: var(--accent);
+}
+
+.table-sort.is-active {
+  color: var(--accent);
+}
+
+.table-sort-icon {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.table-sort.is-active .table-sort-icon {
+  opacity: 1;
+}
