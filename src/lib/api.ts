@@ -8,6 +8,23 @@ export type ReportColumn = {
   type: ColumnType;
 };
 
+export type BarChartSpec = {
+  type: 'bar';
+  title: string;
+  labelKey: string;
+  valueKey: string;
+};
+
+export type ScatterChartSpec = {
+  type: 'scatter';
+  title: string;
+  xKey: string;
+  yKey: string;
+  labelKey: string;
+};
+
+export type ChartSpec = BarChartSpec | ScatterChartSpec;
+
 export type ReportDefinition = {
   id: string;
   name: string;
@@ -17,6 +34,7 @@ export type ReportDefinition = {
   thresholdLabel: string;
   defaultThreshold: number;
   columns: ReportColumn[];
+  charts: ChartSpec[];
 };
 
 export type ReportRow = Record<string, string | number | null>;

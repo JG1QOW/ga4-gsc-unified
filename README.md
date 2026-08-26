@@ -38,6 +38,10 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 | ページ別「流入後品質」 | GA4×SC | 検索 / Discover で来た読者が実際に読んだか |
 | ページ回遊力ランキング | GA4 | 次のページへ送客できるページ |
 
+各レポートは表に加えてグラフ（棒グラフ・散布図）を表示します。
+
+「ページ別「流入後品質」」は GSC と GA4 のページを突き合わせるため、ホスト（`www.` の有無・大文字小文字）とパス（末尾スラッシュ・URL エンコード・大文字小文字）を正規化した上で GSC 側を基準に LEFT JOIN します。GA4 側に該当ページが無い場合は GA4 指標が空になり、画面に GA4 プロパティとサイトの対応を確認する案内を表示します。
+
 前提とするテーブルは GSC 側が `<GSC Dataset>.searchdata_url_impression`（`data_date`, `site_url`, `url`, `search_type`, `impressions`, `clicks`, `sum_position`）、GA4 側が `<GA4 Dataset>.events_*`（`event_name`, `event_timestamp`, `user_pseudo_id`, `event_params`）です。
 
 ## API

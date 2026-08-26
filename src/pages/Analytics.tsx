@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import BarChart from '../components/BarChart';
+import ScatterChart from '../components/ScatterChart';
 import {
   fetchReportCatalog,
   fetchSites,
   runReport,
-  type ReportColumn,
   type ReportDefinition,
   type ReportResult,
   type SiteOption,
 } from '../lib/api';
+import { formatValue } from '../lib/format';
 import { isComplete, loadSettings } from '../lib/settings';
 
 function toDateInput(date: Date): string {
@@ -21,22 +23,6 @@ function defaultRange(): { startDate: string; endDate: string } {
   const start = new Date(end);
   start.setDate(start.getDate() - 27);
   return { startDate: toDateInput(start), endDate: toDateInput(end) };
-}
-
-function formatCell(value: string | number | null, column: ReportColumn): string {
-  if (value === null || value === undefined || value === '') {
-    return '—';
-  }
-  if (column.type === 'number') {
-    return Number(value).toLocaleString('ja-JP');
-  }
-  if (column.type === 'decimal') {
-    return Number(value).toLocaleString('ja-JP', { maximumFractionDigits: 1 });
-  }
-  if (column.type === 'percent') {
-    return `${(Number(value) * 100).toFixed(1)}%`;
-  }
-  return String(value);
 }
 
 export default function Analytics() {
@@ -53,6 +39,12 @@ export default function Analytics() {
   const [error, setError] = useState<string | null>(null);
 
   const selectedReport = catalog.find((report) => report.id === reportId) ?? null;
+  const charts = selectedReport?.charts ?? [];
+  const ga4Unmatched =
+    result !== null &&
+    result.rows.length > 0 &&
+    result.columns.some((column) => column.key === 'sessions') &&
+    result.rows.every((row) => row.sessions === null || row.sessions === undefined);
 
   useEffect(() => {
     fetchReportCatalog()
@@ -189,6 +181,25 @@ export default function Analytics() {
         {error ? <p className="alert">{error}</p> : null}
       </section>
 
+      {result && result.rows.length > 0 && charts.length > 0 ? (
+        <section className="card">
+          <header className="card-header">
+            <div>
+              <h3 className="card-title">{selectedReport?.name}（グラフ）</h3>
+            </div>
+          </header>
+          <div className="chart-grid">
+            {charts.map((chart, index) =>
+              chart.type === 'bar' ? (
+                <BarChart key={index} spec={chart} columns={result.columns} rows={result.rows} />
+              ) : (
+                <ScatterChart key={index} spec={chart} columns={result.columns} rows={result.rows} />
+              ),
+            )}
+          </div>
+        </section>
+      ) : null}
+
       {result ? (
         <section className="card">
           <header className="card-header">
@@ -223,7 +234,7 @@ export default function Analytics() {
                               {value}
                             </a>
                           ) : (
-                            formatCell(value, column)
+                            formatValue(value, column)
                           )}
                         </td>
                       );
@@ -233,7 +244,17 @@ export default function Analytics() {
               </tbody>
             </table>
           </div>
-          {result.rows.length === 0 ? <p className="card-text">条件に一致するページがありませんでした。</p> : null}
+          {result.rows.length === 0 ? (
+            <p className="card-text">
+              条件に一致するページがありませんでした。しきい値を下げるか、期間を広げてください。
+            </p>
+          ) : null}
+          {ga4Unmatched ? (
+            <p className="alert">
+              GSC のクリックに対応する GA4 のページが見つかりません。Settings の GA4 Dataset がこのサイトのプロパティか、
+              選択したサイトとドメインが一致しているかを確認してください。
+            </p>
+          ) : null}
         </section>
       ) : null}
     </div>
