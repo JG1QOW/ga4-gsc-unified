@@ -12,6 +12,7 @@ import {
   type SiteOption,
 } from '../lib/api';
 import { activeSite, isComplete, loadStore, saveActiveSiteId, siteLabel } from '../lib/settings';
+import { resolveUnits } from '../lib/units';
 
 function toDateInput(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -33,7 +34,7 @@ export default function Analytics() {
 
   const [range, setRange] = useState(defaultRange);
   const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
-  const [reportId, setReportId] = useState<string>('');
+  const [unitId, setUnitId] = useState<string>('');
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [site, setSite] = useState('');
   const [threshold, setThreshold] = useState<number | null>(null);
@@ -41,7 +42,9 @@ export default function Analytics() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedReport = catalog.find((report) => report.id === reportId) ?? null;
+  const units = useMemo(() => (settings ? resolveUnits(settings, catalog) : []), [settings, catalog]);
+  const selectedUnit = units.find((entry) => entry.unit.id === unitId) ?? units[0] ?? null;
+  const selectedReport = selectedUnit?.report ?? null;
   const charts = selectedReport?.charts ?? [];
   const ga4Unmatched =
     result !== null &&
@@ -51,10 +54,7 @@ export default function Analytics() {
 
   useEffect(() => {
     fetchReportCatalog()
-      .then(({ reports }) => {
-        setCatalog(reports);
-        setReportId((current) => current || reports[0]?.id || '');
-      })
+      .then(({ reports }) => setCatalog(reports))
       .catch((cause: Error) => setError(cause.message));
   }, []);
 
@@ -70,10 +70,11 @@ export default function Analytics() {
   useEffect(() => {
     setResult(null);
     setThreshold(null);
-  }, [reportId]);
+  }, [unitId]);
 
   useEffect(() => {
     setResult(null);
+    setUnitId('');
     setSite('');
     setSites([]);
     if (siteConfigId) {
@@ -82,21 +83,21 @@ export default function Analytics() {
   }, [siteConfigId]);
 
   const handleRun = async () => {
-    if (!selectedReport || !settings) {
+    if (!selectedUnit || !settings) {
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const report = await runReport(selectedReport.id, {
+      const report = await runReport(selectedUnit.report.id, {
         project: settings.project,
         ga4Dataset: settings.ga4Dataset,
         gscDataset: settings.gscDataset,
         startDate: range.startDate,
         endDate: range.endDate,
         site: site || null,
-        threshold: threshold ?? selectedReport.defaultThreshold,
-        limit: 100,
+        threshold: threshold ?? selectedUnit.unit.threshold ?? selectedUnit.report.defaultThreshold,
+        limit: selectedUnit.unit.limit,
       });
       setResult(report);
     } catch (cause) {
@@ -147,21 +148,27 @@ export default function Analytics() {
           ) : null}
         </header>
 
-        <div className="report-grid">
-          {catalog.map((report) => (
-            <button
-              key={report.id}
-              type="button"
-              className={report.id === reportId ? 'report-card is-active' : 'report-card'}
-              onClick={() => setReportId(report.id)}
-            >
-              <span className="report-priority">{'★'.repeat(report.priority)}</span>
-              <span className="report-name">{report.name}</span>
-              <span className="report-source">{report.dataSource}</span>
-              <span className="report-insight">{report.insight}</span>
-            </button>
-          ))}
-        </div>
+        {units.length === 0 ? (
+          <p className="card-text">
+            このサイトのレポートユニットが構成されていません。<Link to="/settings">Settings</Link> で構成してください。
+          </p>
+        ) : (
+          <div className="report-grid">
+            {units.map(({ unit, report, label }) => (
+              <button
+                key={unit.id}
+                type="button"
+                className={unit.id === selectedUnit?.unit.id ? 'report-card is-active' : 'report-card'}
+                onClick={() => setUnitId(unit.id)}
+              >
+                <span className="report-priority">{'★'.repeat(report.priority)}</span>
+                <span className="report-name">{label}</span>
+                <span className="report-source">{report.dataSource}</span>
+                <span className="report-insight">{report.insight}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="filters">
           <label className="filter">
@@ -199,11 +206,11 @@ export default function Analytics() {
               className="input"
               type="number"
               min={0}
-              value={threshold ?? selectedReport?.defaultThreshold ?? 0}
+              value={threshold ?? selectedUnit?.unit.threshold ?? selectedReport?.defaultThreshold ?? 0}
               onChange={(event) => setThreshold(Number(event.target.value))}
             />
           </label>
-          <button className="button" type="button" onClick={handleRun} disabled={loading || !selectedReport}>
+          <button className="button" type="button" onClick={handleRun} disabled={loading || !selectedUnit}>
             {loading ? '実行中…' : 'レポート実行'}
           </button>
         </div>
@@ -215,7 +222,7 @@ export default function Analytics() {
         <section className="card">
           <header className="card-header">
             <div>
-              <h3 className="card-title">{selectedReport?.name}（グラフ）</h3>
+              <h3 className="card-title">{selectedUnit?.label}（グラフ）</h3>
             </div>
           </header>
           <div className="chart-grid">
@@ -234,7 +241,7 @@ export default function Analytics() {
         <section className="card">
           <header className="card-header">
             <div>
-              <h3 className="card-title">{selectedReport?.name}</h3>
+              <h3 className="card-title">{selectedUnit?.label}</h3>
               <p className="card-text">
                 {result.rows.length} 行 ／ スキャン {(result.bytesProcessed / 1024 ** 2).toFixed(1)} MB
               </p>

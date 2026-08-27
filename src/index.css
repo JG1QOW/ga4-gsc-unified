@@ -536,3 +536,22 @@ body {
   font-size: 12px;
   font-weight: 600;
 }
+
+.unit-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.unit-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.4fr) minmax(120px, 1fr) 96px 96px auto;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .unit-row {
+    grid-template-columns: 1fr;
+  }
+}

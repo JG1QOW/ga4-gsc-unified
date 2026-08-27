@@ -1,15 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { fetchReportCatalog, type ReportDefinition } from '../lib/api';
 import {
+  createUnit,
+  DEFAULT_UNIT_LIMIT,
   emptySite,
   loadStore,
   saveStore,
   siteLabel,
   validateSite,
+  type ReportUnit,
   type SiteConfig,
   type SettingsStore,
 } from '../lib/settings';
+import { defaultUnits } from '../lib/units';
 
-const FIELDS: { key: keyof Omit<SiteConfig, 'id'>; label: string; placeholder: string; help: string }[] = [
+type SiteTextField = 'name' | 'project' | 'ga4Dataset' | 'gscDataset';
+
+const FIELDS: { key: SiteTextField; label: string; placeholder: string; help: string }[] = [
   {
     key: 'name',
     label: 'サイト名',
@@ -45,8 +52,28 @@ export default function Settings() {
   });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saved, setSaved] = useState(false);
+  const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
-  const updateSite = (id: string, key: keyof Omit<SiteConfig, 'id'>, value: string) => {
+  useEffect(() => {
+    fetchReportCatalog()
+      .then(({ reports }) => setCatalog(reports))
+      .catch((cause: Error) => setCatalogError(cause.message));
+  }, []);
+
+  const updateUnits = (siteId: string, next: (units: ReportUnit[]) => ReportUnit[]) => {
+    setStore((current) => ({
+      ...current,
+      sites: current.sites.map((site) => (site.id === siteId ? { ...site, units: next(site.units) } : site)),
+    }));
+    setSaved(false);
+  };
+
+  const updateUnit = <K extends keyof ReportUnit>(siteId: string, unitId: string, key: K, value: ReportUnit[K]) => {
+    updateUnits(siteId, (units) => units.map((unit) => (unit.id === unitId ? { ...unit, [key]: value } : unit)));
+  };
+
+  const updateSite = (id: string, key: SiteTextField, value: string) => {
     setStore((current) => ({
       ...current,
       sites: current.sites.map((site) => (site.id === id ? { ...site, [key]: value.trim() } : site)),
@@ -100,7 +127,7 @@ export default function Settings() {
         <div>
           <h2 className="card-title">Settings</h2>
           <p className="card-text">
-            Analytics で参照するサイトを複数登録できます。設定はこのブラウザに保存されます。
+            Analytics で参照するサイトと、サイトごとのレポートユニット構成を設定します。設定はこのブラウザに保存されます。
           </p>
         </div>
       </header>
@@ -131,6 +158,89 @@ export default function Settings() {
                 </div>
               );
             })}
+            <div className="form-row">
+              <span className="form-label">レポートユニット</span>
+              <p className="form-help">
+                Analytics に表示するレポートとその既定値をサイトごとに構成します。未構成の場合は全レポートを表示します。
+              </p>
+              {catalogError ? <p className="alert">{catalogError}</p> : null}
+              <div className="unit-list">
+                {site.units.map((unit) => {
+                  const report = catalog.find((candidate) => candidate.id === unit.reportId);
+                  return (
+                    <div className="unit-row" key={unit.id}>
+                      <select
+                        className="input"
+                        value={unit.reportId}
+                        onChange={(event) => updateUnit(site.id, unit.id, 'reportId', event.target.value)}
+                      >
+                        {catalog.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                          </option>
+                        ))}
+                        {report ? null : <option value={unit.reportId}>{unit.reportId}（未知のレポート）</option>}
+                      </select>
+                      <input
+                        className="input"
+                        value={unit.label}
+                        placeholder={report?.name ?? '表示名'}
+                        onChange={(event) => updateUnit(site.id, unit.id, 'label', event.target.value)}
+                        autoComplete="off"
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        value={unit.threshold ?? report?.defaultThreshold ?? 0}
+                        onChange={(event) => updateUnit(site.id, unit.id, 'threshold', Number(event.target.value))}
+                        title={report?.thresholdLabel ?? 'しきい値'}
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={unit.limit}
+                        onChange={(event) =>
+                          updateUnit(site.id, unit.id, 'limit', Number(event.target.value) || DEFAULT_UNIT_LIMIT)
+                        }
+                        title="最大行数"
+                      />
+                      <button
+                        className="button is-ghost"
+                        type="button"
+                        onClick={() => updateUnits(site.id, (units) => units.filter((item) => item.id !== unit.id))}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="form-actions">
+                <button
+                  className="button is-ghost"
+                  type="button"
+                  disabled={catalog.length === 0}
+                  onClick={() =>
+                    updateUnits(site.id, (units) => [...units, createUnit(catalog[0]?.id ?? '')])
+                  }
+                >
+                  ユニットを追加
+                </button>
+                {site.units.length === 0 ? (
+                  <button
+                    className="button is-ghost"
+                    type="button"
+                    disabled={catalog.length === 0}
+                    onClick={() => updateUnits(site.id, () => defaultUnits(catalog))}
+                  >
+                    全レポートを追加
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
             <div className="form-actions">
               <button className="button is-ghost" type="button" onClick={() => removeSite(site.id)}>
                 このサイトを削除
