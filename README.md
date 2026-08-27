@@ -28,11 +28,13 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 | GA4 Dataset | GA4 BigQuery Export のデータセット（`events_*` を含む） |
 | GSC Dataset | Search Console 一括データエクスポートのデータセット（`searchdata_url_impression` を含む） |
 
+さらにサイトごとに「レポートユニット」を構成できます。1 ユニットは「レポート種別 / 表示名 / しきい値 / 最大行数」の組で、同じレポート種別を異なるしきい値で複数登録することもできます。ユニットを登録していないサイトは全レポートが既定値で表示されます。
+
 設定はブラウザの localStorage（キー `ga4-gsc-unified:settings`）に `{ sites: [...], activeSiteId }` 形式で保存され（単一サイトの旧形式は読み込み時に自動移行）、Analytics のリクエストごとにサーバへ渡されます。サーバ側は状態を保持しません。
 
 ### Analytics
 
-登録サイト（複数登録している場合はヘッダのセレクトで切替、選択は保存されます）・GSC プロパティ・期間・しきい値を指定してレポートを実行します。用意しているレポートは以下の 4 種です。
+登録サイト（複数登録している場合はヘッダのセレクトで切替、選択は保存されます）・GSC プロパティ・期間・しきい値を指定してレポートを実行します。カードに並ぶのは Settings でそのサイトに構成したレポートユニットです。サーバが提供するレポート種別は以下の 12 種です。
 
 | レポート | データソース | 分析意図 |
 | --- | --- | --- |
@@ -40,12 +42,22 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 | SEO 改善候補ランキング | SC | 表示は多いのに CTR・順位が悪いページ |
 | ページ別「流入後品質」 | GA4×SC | 検索 / Discover で来た読者が実際に読んだか |
 | ページ回遊力ランキング | GA4 | 次のページへ送客できるページ |
+| Discoverヒットページ分析 | SC＋ページ属性 | Discover で伸びるページの特徴（第 1 階層・パス階層数・スラッグ長） |
+| 検索需要急上昇検知 | SC | 最近急に検索され始めたテーマ |
+| SEOカニバリゼーション | SC | 同じ検索語で複数ページが競合 |
+| ページ劣化・リライト候補 | SC×GA4 | 検索流入が落ち始めたページ |
+| 検索→読了→回遊ファネル | SC×GA4 | SEO 流入の「質」 |
+| リピーター創出力 | GA4 | 新規読者を再訪させるページ |
+| ページ更新効果測定 | SC×GA4 | リライト前後の改善度 |
+| 検索意図クラスタ分析 | SC | サイトが獲得している検索需要の構造 |
+
+トレンド比較型のレポート（検索需要急上昇検知・ページ劣化・リライト候補・ページ更新効果測定）は、指定期間を前半（前期）と後半（後期）に分割して比較します。検索語を扱うレポートは `searchdata_url_impression` の `query` を使い、匿名化クエリは除外します。
 
 各レポートは表に加えてグラフ（棒グラフ・散布図）を表示します。表は列名をクリックすると、その列の値でソート（昇順・降順をトグル）できます。
 
 「ページ別「流入後品質」」は GSC と GA4 のページを突き合わせるため、ホスト（`www.` の有無・大文字小文字）とパス（末尾スラッシュ・URL エンコード・大文字小文字）を正規化した上で GSC 側を基準に LEFT JOIN します。GA4 側に該当ページが無い場合は GA4 指標が空になり、画面に GA4 プロパティとサイトの対応を確認する案内を表示します。
 
-前提とするテーブルは GSC 側が `<GSC Dataset>.searchdata_url_impression`（`data_date`, `site_url`, `url`, `search_type`, `impressions`, `clicks`, `sum_position`）、GA4 側が `<GA4 Dataset>.events_*`（`event_name`, `event_timestamp`, `user_pseudo_id`, `event_params`）です。
+前提とするテーブルは GSC 側が `<GSC Dataset>.searchdata_url_impression`（`data_date`, `site_url`, `url`, `query`, `is_anonymized_query`, `search_type`, `impressions`, `clicks`, `sum_position`）、GA4 側が `<GA4 Dataset>.events_*`（`event_name`, `event_timestamp`, `user_pseudo_id`, `event_params`）です。
 
 ## API
 
