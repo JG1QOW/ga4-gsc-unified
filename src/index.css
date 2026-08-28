@@ -555,3 +555,61 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.mcp-generate {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.mcp-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.mcp-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.mcp-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mcp-endpoint,
+.mcp-token {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.mcp-token {
+  display: block;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.mcp-config {
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+@media (max-width: 720px) {
+  .mcp-generate {
+    grid-template-columns: 1fr;
+  }
+}

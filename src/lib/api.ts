@@ -72,6 +72,59 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export type McpAuthMode = 'token' | 'none';
+
+export type McpInstance = {
+  id: string;
+  name: string;
+  project: string;
+  ga4Dataset: string;
+  gscDataset: string;
+  auth: McpAuthMode;
+  createdAt: string;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+};
+
+export type McpInstanceResult = {
+  instance: McpInstance;
+  token: string | null;
+};
+
+export function fetchMcpInstances(): Promise<{ instances: McpInstance[]; store: string }> {
+  return request('/api/mcp/instances');
+}
+
+export function createMcpInstance(
+  body: Settings & { name: string; auth: McpAuthMode },
+): Promise<McpInstanceResult> {
+  return request('/api/mcp/instances', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export function setMcpInstanceAuth(id: string, auth: McpAuthMode): Promise<McpInstanceResult> {
+  return request(`/api/mcp/instances/${id}/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auth }),
+  });
+}
+
+export function reissueMcpToken(id: string): Promise<McpInstanceResult> {
+  return request(`/api/mcp/instances/${id}/token`, { method: 'POST' });
+}
+
+export function revokeMcpInstance(id: string): Promise<{ instance: McpInstance }> {
+  return request(`/api/mcp/instances/${id}/revoke`, { method: 'POST' });
+}
+
+export function deleteMcpInstance(id: string): Promise<{ instance: McpInstance }> {
+  return request(`/api/mcp/instances/${id}`, { method: 'DELETE' });
+}
+
 export function fetchReportCatalog(): Promise<{ reports: ReportDefinition[] }> {
   return request('/api/reports');
 }
