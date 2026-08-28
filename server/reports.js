@@ -1,7 +1,7 @@
 import { assertDatasetId, assertDate, assertProjectId, ValidationError } from './bigquery.js';
 
-const PAGE_PATH_EXPR = "REGEXP_EXTRACT(%s, r'^https?://[^/]+([^?#]*)')";
-const PAGE_HOST_EXPR = "REGEXP_EXTRACT(%s, r'^https?://([^/]+)')";
+const PAGE_PATH_EXPR = "IFNULL(NULLIF(REGEXP_EXTRACT(%s, r'^https?://[^/?#]*([^?#]*)'), ''), '/')";
+const PAGE_HOST_EXPR = "REGEXP_EXTRACT(%s, r'^https?://([^/?#]+)')";
 
 function pagePath(expr) {
   return PAGE_PATH_EXPR.replace('%s', expr);
@@ -60,7 +60,9 @@ function brandFromSite(site) {
   return host ? host.split('.')[0] : null;
 }
 
-const SITE_HOST_EXPR = normalizedHost("REGEXP_EXTRACT(site_url, r'^(?:https?://|sc-domain:)?([^/]+)')");
+const SITE_HOST_EXPR = normalizedHost("REGEXP_EXTRACT(site_url, r'^(?:https?://|sc-domain:)?([^/?#]+)')");
+
+const ORGANIC_SESSION_FILTER = `LOWER(IFNULL(session_traffic_source_last_click.manual_campaign.medium, '')) = 'organic'`;
 
 const QUERY_FILTER = `AND query IS NOT NULL AND NOT IFNULL(is_anonymized_query, FALSE)`;
 
@@ -730,7 +732,7 @@ LIMIT @rowLimit`,
     columns: [
       { key: 'page', label: 'ページ', type: 'text' },
       { key: 'searchClicks', label: '検索クリック', type: 'number' },
-      { key: 'sessions', label: 'セッション', type: 'number' },
+      { key: 'sessions', label: '自然検索セッション', type: 'number' },
       { key: 'readSessions', label: '読了セッション', type: 'number' },
       { key: 'onwardSessions', label: '回遊セッション', type: 'number' },
       { key: 'arrivalRate', label: 'クリック→セッション率', type: 'percent' },
@@ -750,6 +752,7 @@ WITH events AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') AS session_engaged
   FROM ${ga4EventsTable({ project, ga4Dataset })}
   WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+    AND ${ORGANIC_SESSION_FILTER}
 ),
 page_views AS (
   SELECT
@@ -760,22 +763,34 @@ page_views AS (
   FROM events
   WHERE event_name = 'page_view' AND page_path IS NOT NULL
 ),
-onward AS (
+session_pages AS (
   SELECT
+    session_key,
     normPath(page_path) AS page_key,
     page_host,
-    COUNT(DISTINCT session_key) AS sessions,
-    COUNT(DISTINCT IF(next_path IS NOT NULL AND next_path != page_path, session_key, NULL)) AS onward_sessions
+    LOGICAL_OR(next_path IS NOT NULL AND next_path != page_path) AS onward
   FROM page_views
-  GROUP BY page_key, page_host
+  GROUP BY session_key, page_key, page_host
 ),
-reads AS (
+session_reads AS (
   SELECT
+    session_key,
     normPath(page_path) AS page_key,
     page_host,
-    COUNT(DISTINCT IF(event_name = 'scroll' OR session_engaged = '1', session_key, NULL)) AS read_sessions
+    LOGICAL_OR(event_name = 'scroll' OR session_engaged = '1') AS did_read
   FROM events
   WHERE page_path IS NOT NULL
+  GROUP BY session_key, page_key, page_host
+),
+ga AS (
+  SELECT
+    session_pages.page_key,
+    session_pages.page_host,
+    COUNT(*) AS sessions,
+    COUNTIF(IFNULL(session_reads.did_read, FALSE)) AS read_sessions,
+    COUNTIF(session_pages.onward) AS onward_sessions
+  FROM session_pages
+  LEFT JOIN session_reads USING (session_key, page_key, page_host)
   GROUP BY page_key, page_host
 ),
 sc_raw AS (
@@ -797,15 +812,14 @@ sc AS (
 SELECT
   CONCAT(sc.page_host, sc.page_key) AS page,
   sc.search_clicks AS searchClicks,
-  onward.sessions,
-  reads.read_sessions AS readSessions,
-  onward.onward_sessions AS onwardSessions,
-  SAFE_DIVIDE(onward.sessions, sc.search_clicks) AS arrivalRate,
-  SAFE_DIVIDE(reads.read_sessions, onward.sessions) AS readRate,
-  SAFE_DIVIDE(onward.onward_sessions, onward.sessions) AS onwardRate
+  ga.sessions,
+  ga.read_sessions AS readSessions,
+  ga.onward_sessions AS onwardSessions,
+  SAFE_DIVIDE(ga.sessions, sc.search_clicks) AS arrivalRate,
+  SAFE_DIVIDE(ga.read_sessions, ga.sessions) AS readRate,
+  SAFE_DIVIDE(ga.onward_sessions, ga.sessions) AS onwardRate
 FROM sc
-LEFT JOIN onward USING (page_host, page_key)
-LEFT JOIN reads USING (page_host, page_key)
+LEFT JOIN ga USING (page_host, page_key)
 WHERE sc.search_clicks >= @threshold
 ORDER BY sc.search_clicks DESC
 LIMIT @rowLimit`,
