@@ -4,7 +4,7 @@ import express from 'express';
 import { createBigQueryClient, ValidationError } from './bigquery.js';
 import { buildReportQuery, buildSitesQuery, reportCatalog } from './reports.js';
 import { handleMcpRequest, mcpInstanceInfo } from './mcp.js';
-import { authorizeMcpEndpoint, createMcpEndpoint, sealKeyConfigured } from './mcp-seal.js';
+import { authorizeMcpEndpoint, createMcpEndpoint, sealKeySource } from './mcp-seal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, '..', 'dist');
@@ -37,7 +37,7 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     projectId: process.env.PROJECT_NAME ?? null,
     bigqueryReady: Boolean(bigquery),
-    mcpSealReady: sealKeyConfigured(),
+    mcpSealKeySource: sealKeySource(),
     timestamp: new Date().toISOString(),
   });
 });
