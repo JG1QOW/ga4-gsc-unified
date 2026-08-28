@@ -12,10 +12,19 @@ export type ReportUnit = {
   limit: number;
 };
 
+export type McpEndpoint = {
+  id: string;
+  name: string;
+  auth: 'token' | 'none';
+  createdAt: string;
+  token: string | null;
+};
+
 export type SiteConfig = Settings & {
   id: string;
   name: string;
   units: ReportUnit[];
+  endpoints: McpEndpoint[];
 };
 
 export const DEFAULT_UNIT_LIMIT = 100;
@@ -34,7 +43,7 @@ export function createSiteId(): string {
 }
 
 export function emptySite(): SiteConfig {
-  return { id: createSiteId(), name: '', units: [], ...EMPTY_SETTINGS };
+  return { id: createSiteId(), name: '', units: [], endpoints: [], ...EMPTY_SETTINGS };
 }
 
 export function createUnit(reportId: string): ReportUnit {
@@ -54,12 +63,28 @@ function toReportUnit(value: Partial<ReportUnit>): ReportUnit | null {
   };
 }
 
+function toMcpEndpoint(value: Partial<McpEndpoint>): McpEndpoint | null {
+  if (typeof value.id !== 'string' || !value.id) {
+    return null;
+  }
+  return {
+    id: value.id,
+    name: value.name ?? '',
+    auth: value.auth === 'none' ? 'none' : 'token',
+    createdAt: value.createdAt ?? '',
+    token: typeof value.token === 'string' ? value.token : null,
+  };
+}
+
 function toSiteConfig(value: Partial<SiteConfig>): SiteConfig {
   return {
     id: typeof value.id === 'string' && value.id ? value.id : createSiteId(),
     name: value.name ?? '',
     units: Array.isArray(value.units)
       ? value.units.map(toReportUnit).filter((unit): unit is ReportUnit => unit !== null)
+      : [],
+    endpoints: Array.isArray(value.endpoints)
+      ? value.endpoints.map(toMcpEndpoint).filter((endpoint): endpoint is McpEndpoint => endpoint !== null)
       : [],
     project: value.project ?? '',
     ga4Dataset: value.ga4Dataset ?? '',
@@ -125,7 +150,7 @@ export function validateSettings(settings: Settings): Partial<Record<keyof Setti
   return errors;
 }
 
-export function validateSite(site: SiteConfig): Partial<Record<keyof Omit<SiteConfig, 'units'>, string>> {
+export function validateSite(site: SiteConfig): Partial<Record<keyof Omit<SiteConfig, 'units' | 'endpoints'>, string>> {
   const errors: Partial<Record<keyof SiteConfig, string>> = validateSettings(site);
   if (!site.name.trim()) {
     errors.name = 'サイト名を入力してください';

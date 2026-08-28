@@ -115,13 +115,13 @@ async function callTool(bigquery, instance, name, args) {
   }
 }
 
-export function mcpInstanceInfo(instance) {
+export function mcpInstanceInfo(instanceId, instance) {
   return {
     server: SERVER_NAME,
-    instance: { id: instance.id, name: instance.name },
+    instance: { name: instance.name, createdAt: instance.createdAt },
     transport: 'http-jsonrpc',
     protocolVersion: PROTOCOL_VERSION,
-    endpoint: `/mcp/${instance.id}`,
+    endpoint: `/mcp/${instanceId}`,
     auth: instance.auth === 'token' ? 'bearer token or ?token= query parameter' : 'none',
     project: instance.project,
     datasets: { ga4: instance.ga4Dataset, gsc: instance.gscDataset },

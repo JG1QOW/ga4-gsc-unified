@@ -1,48 +1,60 @@
 import { useState } from 'react';
-import {
-  createMcpInstance,
-  deleteMcpInstance,
-  reissueMcpToken,
-  revokeMcpInstance,
-  setMcpInstanceAuth,
-  type McpAuthMode,
-  type McpInstance,
-} from '../lib/api';
-import { siteLabel, validateSite, type SiteConfig } from '../lib/settings';
+import { createMcpEndpoint, type McpAuthMode } from '../lib/api';
+import { siteLabel, validateSite, type McpEndpoint, type SiteConfig } from '../lib/settings';
 
 type Props = {
   site: SiteConfig;
-  instances: McpInstance[];
-  onChanged: () => void;
+  onChange: (endpoints: McpEndpoint[]) => void;
 };
 
-function endpointUrl(instance: McpInstance) {
-  return `${window.location.origin}/mcp/${instance.id}`;
+function endpointUrl(endpoint: McpEndpoint) {
+  const base = `${window.location.origin}/mcp/${endpoint.id}`;
+  return endpoint.token ? `${base}?token=${endpoint.token}` : base;
 }
 
-function clientConfig(instance: McpInstance, token: string | null) {
-  const url = token ? `${endpointUrl(instance)}?token=${token}` : endpointUrl(instance);
+function clientConfig(endpoint: McpEndpoint) {
   return JSON.stringify(
-    { mcpServers: { [`ga4-gsc-${instance.name || instance.id}`]: { command: 'npx', args: ['-y', 'mcp-remote', url] } } },
+    {
+      mcpServers: {
+        [`ga4-gsc-${endpoint.name || 'site'}`]: {
+          command: 'npx',
+          args: ['-y', 'mcp-remote', endpointUrl(endpoint)],
+        },
+      },
+    },
     null,
     2,
   );
 }
 
-export default function McpServerPanel({ site, instances, onChanged }: Props) {
+export default function McpServerPanel({ site, onChange }: Props) {
   const [auth, setAuth] = useState<McpAuthMode>('token');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tokens, setTokens] = useState<Record<string, string>>({});
 
   const incomplete = Object.keys(validateSite(site)).length > 0;
 
-  const run = async (action: () => Promise<void>) => {
+  const generate = async () => {
     setBusy(true);
     setError(null);
     try {
-      await action();
-      onChanged();
+      const created = await createMcpEndpoint({
+        name: siteLabel(site),
+        project: site.project,
+        ga4Dataset: site.ga4Dataset,
+        gscDataset: site.gscDataset,
+        auth,
+      });
+      onChange([
+        ...site.endpoints,
+        {
+          id: created.id,
+          name: created.name,
+          auth: created.auth,
+          createdAt: created.createdAt,
+          token: created.token,
+        },
+      ]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -50,26 +62,13 @@ export default function McpServerPanel({ site, instances, onChanged }: Props) {
     }
   };
 
-  const generate = () =>
-    run(async () => {
-      const { instance, token } = await createMcpInstance({
-        name: siteLabel(site),
-        project: site.project,
-        ga4Dataset: site.ga4Dataset,
-        gscDataset: site.gscDataset,
-        auth,
-      });
-      if (token) {
-        setTokens((current) => ({ ...current, [instance.id]: token }));
-      }
-    });
-
   return (
     <div className="form-row">
       <span className="form-label">MCP サーバー</span>
       <p className="form-help">
         このサイトの Project / データセットを対象にした MCP エンドポイントを発行します。エンドポイントは MCP
-        クライアント（Claude Desktop、Cursor など）から利用できます。
+        クライアント（Claude Desktop、Cursor など）から利用できます。発行内容はサーバに保存されず、URL 自体に
+        暗号化して埋め込まれます。
       </p>
 
       <div className="mcp-generate">
@@ -92,94 +91,35 @@ export default function McpServerPanel({ site, instances, onChanged }: Props) {
       ) : null}
       {error ? <p className="alert">{error}</p> : null}
 
-      {instances.length > 0 ? (
+      {site.endpoints.length > 0 ? (
         <ul className="mcp-list">
-          {instances.map((instance) => {
-            const token = tokens[instance.id] ?? null;
-            return (
-              <li className="mcp-item" key={instance.id}>
-                <div className="mcp-item-head">
-                  <code className="mcp-endpoint">{endpointUrl(instance)}</code>
-                  <span className={instance.revokedAt ? 'badge' : 'badge is-success'}>
-                    {instance.revokedAt ? '失効' : instance.auth === 'token' ? '認証あり' : '認証なし'}
-                  </span>
-                </div>
-                <p className="form-help">
-                  作成 {instance.createdAt.slice(0, 19).replace('T', ' ')} / 最終利用{' '}
-                  {instance.lastUsedAt ? instance.lastUsedAt.slice(0, 19).replace('T', ' ') : '—'}
-                </p>
-                {token ? (
-                  <>
-                    <p className="form-help is-error">
-                      トークンは今だけ表示されます。閉じると再表示できません（再発行は可能です）。
-                    </p>
-                    <code className="mcp-token">{token}</code>
-                    <pre className="mcp-config">{clientConfig(instance, token)}</pre>
-                  </>
-                ) : (
-                  <pre className="mcp-config">{clientConfig(instance, null)}</pre>
-                )}
-                <div className="form-actions">
-                  <button
-                    className="button is-ghost"
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () => {
-                        const result = await reissueMcpToken(instance.id);
-                        if (result.token) {
-                          setTokens((current) => ({ ...current, [instance.id]: result.token as string }));
-                        }
-                      })
-                    }
-                  >
-                    トークンを再発行
-                  </button>
-                  <button
-                    className="button is-ghost"
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () => {
-                        const next = instance.auth === 'token' ? 'none' : 'token';
-                        const result = await setMcpInstanceAuth(instance.id, next);
-                        setTokens((current) => {
-                          const copy = { ...current };
-                          if (result.token) {
-                            copy[instance.id] = result.token;
-                          } else {
-                            delete copy[instance.id];
-                          }
-                          return copy;
-                        });
-                      })
-                    }
-                  >
-                    {instance.auth === 'token' ? '認証なしに変更' : '認証ありに変更'}
-                  </button>
-                  {instance.revokedAt ? null : (
-                    <button
-                      className="button is-ghost"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => run(async () => void (await revokeMcpInstance(instance.id)))}
-                    >
-                      失効
-                    </button>
-                  )}
-                  <button
-                    className="button is-ghost"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => run(async () => void (await deleteMcpInstance(instance.id)))}
-                  >
-                    削除
-                  </button>
-                </div>
-              </li>
-            );
-          })}
+          {site.endpoints.map((endpoint) => (
+            <li className="mcp-item" key={endpoint.id}>
+              <div className="mcp-item-head">
+                <span className="badge is-success">{endpoint.auth === 'token' ? '認証あり' : '認証なし'}</span>
+                <span className="form-help">発行 {endpoint.createdAt.slice(0, 19).replace('T', ' ')}</span>
+              </div>
+              <code className="mcp-endpoint">{endpointUrl(endpoint)}</code>
+              <pre className="mcp-config">{clientConfig(endpoint)}</pre>
+              <div className="form-actions">
+                <button
+                  className="button is-ghost"
+                  type="button"
+                  onClick={() => onChange(site.endpoints.filter((item) => item.id !== endpoint.id))}
+                >
+                  一覧から削除
+                </button>
+              </div>
+            </li>
+          ))}
         </ul>
+      ) : null}
+
+      {site.endpoints.length > 0 ? (
+        <p className="form-help">
+          この一覧はブラウザに保存されているだけです。「一覧から削除」しても URL は無効になりません。発行済みの
+          エンドポイントをまとめて無効化するには、サーバの署名鍵（<code>MCP_SEAL_KEY</code>）をローテートしてください。
+        </p>
       ) : null}
     </div>
   );
