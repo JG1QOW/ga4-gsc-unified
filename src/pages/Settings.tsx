@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchMcpInstances, fetchReportCatalog, type McpInstance, type ReportDefinition } from '../lib/api';
+import { fetchReportCatalog, type ReportDefinition } from '../lib/api';
 import McpServerPanel from '../components/McpServerPanel';
 import {
   createUnit,
@@ -9,6 +9,7 @@ import {
   saveStore,
   siteLabel,
   validateSite,
+  type McpEndpoint,
   type ReportUnit,
   type SiteConfig,
   type SettingsStore,
@@ -55,20 +56,21 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [instances, setInstances] = useState<McpInstance[]>([]);
-
-  const refreshInstances = () => {
-    fetchMcpInstances()
-      .then(({ instances: loaded }) => setInstances(loaded))
-      .catch(() => setInstances([]));
-  };
 
   useEffect(() => {
     fetchReportCatalog()
       .then(({ reports }) => setCatalog(reports))
       .catch((cause: Error) => setCatalogError(cause.message));
-    refreshInstances();
   }, []);
+
+  const updateEndpoints = (siteId: string, endpoints: McpEndpoint[]) => {
+    const next = {
+      ...store,
+      sites: store.sites.map((site) => (site.id === siteId ? { ...site, endpoints } : site)),
+    };
+    setStore(next);
+    saveStore(next);
+  };
 
   const updateUnits = (siteId: string, next: (units: ReportUnit[]) => ReportUnit[]) => {
     setStore((current) => ({
@@ -250,16 +252,7 @@ export default function Settings() {
               </div>
             </div>
 
-            <McpServerPanel
-              site={site}
-              instances={instances.filter(
-                (instance) =>
-                  instance.project === site.project &&
-                  instance.ga4Dataset === site.ga4Dataset &&
-                  instance.gscDataset === site.gscDataset,
-              )}
-              onChanged={refreshInstances}
-            />
+            <McpServerPanel site={site} onChange={(endpoints) => updateEndpoints(site.id, endpoints)} />
 
             <div className="form-actions">
               <button className="button is-ghost" type="button" onClick={() => removeSite(site.id)}>
