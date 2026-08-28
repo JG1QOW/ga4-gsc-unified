@@ -61,6 +61,7 @@ jobs:
           env_vars: |
             GCP_SA_KEY_BASE64=${{ env.GCP_SA_KEY_BASE64 }}
             PROJECT_NAME=${{ secrets.PROJECT_NAME }}
+            MCP_TOKEN_SALT=${{ secrets.MCP_TOKEN_SALT }}
 
       - name: Show Output
         run: echo "${{ steps.deploy.outputs.url }}"

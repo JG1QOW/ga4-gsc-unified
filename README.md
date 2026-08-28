@@ -67,8 +67,57 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 | `GET /api/reports` | レポートのカタログ（表示名・データソース・列定義・既定しきい値） |
 | `POST /api/sites` | GSC データセットに含まれる `site_url` の一覧 |
 | `POST /api/reports/:reportId` | レポートを実行し、列定義・行・スキャンバイト数を返す |
+| `GET /api/mcp/instances` | 発行済み MCP インスタンスの一覧 |
+| `POST /api/mcp/instances` | MCP インスタンスを生成（トークン認証の場合はトークンを 1 度だけ返す） |
+| `POST /api/mcp/instances/:id/auth` | 認証方式を `token` / `none` に変更 |
+| `POST /api/mcp/instances/:id/token` | トークンを再発行（旧トークンは無効化） |
+| `POST /api/mcp/instances/:id/revoke` | インスタンスを失効（エンドポイントは 404 になる） |
+| `DELETE /api/mcp/instances/:id` | インスタンスを削除 |
 
 プロジェクト ID・データセット ID は SQL の識別子として展開するため形式を検証し、それ以外の値は BigQuery のクエリパラメータとして渡します。
+
+## MCP サーバー
+
+Settings のサイトごとに「MCP サーバーを生成」でき、そのサイトの Project / GA4 Dataset / GSC Dataset だけを対象とする MCP エンドポイントが即時発行されます。Cloud Run サービスは 1 つのまま、`/mcp/:instanceId` でインスタンスを区別します。
+
+| エンドポイント | 内容 |
+| --- | --- |
+| `POST /mcp/:instanceId` | MCP の JSON-RPC 2.0 エンドポイント（`initialize` / `ping` / `tools/list` / `tools/call`） |
+| `GET /mcp/:instanceId` | 接続情報（対象データセット・認証方式・ツール一覧） |
+
+公開しているツールは以下の 4 つで、任意 SQL の実行は提供しません。
+
+| ツール | 内容 |
+| --- | --- |
+| `list_reports` | 利用できるレポート種別・列定義・既定しきい値 |
+| `run_report` | レポートを実行（`reportId`, `startDate`, `endDate`, `site`, `threshold`, `limit`） |
+| `list_sites` | GSC データセットに含まれる `site_url` の一覧 |
+| `describe_tables` | 対象 GA4 / GSC データセットのテーブルとスキーマ |
+
+### 認証
+
+生成時に「トークン認証」（既定）か「認証なし」を選べます。トークンは `Authorization: Bearer <token>` か `?token=<token>` で渡します。URL にトークンを載せる方式はブラウザ履歴やアクセスログに残るため、可能なら Authorization ヘッダを使ってください。
+
+トークンは平文保存せず `MCP_TOKEN_SALT` 付きの SHA-256 ハッシュのみを Firestore に保存します。生成・再発行時にしか表示されないため、紛失した場合は再発行してください（旧トークンは無効化されます）。
+
+「認証なし」を選ぶと、エンドポイント URL を知っていれば誰でも対象データセットを参照でき、BigQuery のクエリ課金も発生します。社外に共有される可能性がある場合はトークン認証を使ってください。
+
+MCP クライアント（Claude Desktop など）からは `mcp-remote` 経由で接続します。
+
+```json
+{
+  "mcpServers": {
+    "ga4-gsc-example": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://<Cloud Run のホスト>/mcp/<instanceId>?token=<token>"]
+    }
+  }
+}
+```
+
+### Firestore
+
+MCP インスタンスは Firestore（既定コレクション `ga4GscMcpInstances`）に保存します。デプロイ先プロジェクトで Firestore（Native モード）を有効にし、`GCP_SA_KEY` のサービスアカウントに `roles/datastore.user` を付与してください。Firestore の認証情報が無い環境ではプロセスメモリ上に保持するだけになり、再起動で失われます。
 
 ## デプロイ
 
@@ -85,6 +134,7 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 | --- | --- |
 | `PROJECT_NAME` | デプロイ先の GCP プロジェクト ID。コードや設定ファイルにハードコードしません |
 | `GCP_SA_KEY` | サービスアカウントキー（JSON）。GitHub Actions での認証に使用し、base64 エンコードして `GCP_SA_KEY_BASE64` として Cloud Run に渡されます |
+| `MCP_TOKEN_SALT` | MCP トークンのハッシュ用ソルト。ランダムな文字列を設定してください（未設定でも動作しますが、設定を推奨） |
 
 ### Cloud Run の環境変数
 
@@ -93,6 +143,9 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 | `PROJECT_NAME` | BigQuery クライアントの `projectId` |
 | `GCP_SA_KEY_BASE64` | base64 エンコードされたサービスアカウントキー JSON。`server/bigquery.js` でデコードして BigQuery の認証情報に使用 |
 | `PORT` | リッスンポート（既定 8080） |
+| `MCP_TOKEN_SALT` | MCP トークンのハッシュに使うソルト。変更すると既存トークンは無効になります |
+| `MCP_COLLECTION` | MCP インスタンスを保存する Firestore コレクション名（既定 `ga4GscMcpInstances`） |
+| `MCP_MAX_BYTES_BILLED` | MCP 経由の BigQuery クエリの課金バイト上限（既定 50GiB） |
 
 ## main ブランチの同期
 

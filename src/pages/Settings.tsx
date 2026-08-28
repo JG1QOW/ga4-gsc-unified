@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { fetchReportCatalog, type ReportDefinition } from '../lib/api';
+import { fetchMcpInstances, fetchReportCatalog, type McpInstance, type ReportDefinition } from '../lib/api';
+import McpServerPanel from '../components/McpServerPanel';
 import {
   createUnit,
   DEFAULT_UNIT_LIMIT,
@@ -54,11 +55,19 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [instances, setInstances] = useState<McpInstance[]>([]);
+
+  const refreshInstances = () => {
+    fetchMcpInstances()
+      .then(({ instances: loaded }) => setInstances(loaded))
+      .catch(() => setInstances([]));
+  };
 
   useEffect(() => {
     fetchReportCatalog()
       .then(({ reports }) => setCatalog(reports))
       .catch((cause: Error) => setCatalogError(cause.message));
+    refreshInstances();
   }, []);
 
   const updateUnits = (siteId: string, next: (units: ReportUnit[]) => ReportUnit[]) => {
@@ -240,6 +249,17 @@ export default function Settings() {
                 ) : null}
               </div>
             </div>
+
+            <McpServerPanel
+              site={site}
+              instances={instances.filter(
+                (instance) =>
+                  instance.project === site.project &&
+                  instance.ga4Dataset === site.ga4Dataset &&
+                  instance.gscDataset === site.gscDataset,
+              )}
+              onChanged={refreshInstances}
+            />
 
             <div className="form-actions">
               <button className="button is-ghost" type="button" onClick={() => removeSite(site.id)}>
