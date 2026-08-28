@@ -6,16 +6,28 @@ const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const KEY_INFO = 'ga4-gsc-unified:mcp-endpoint:v1';
 
-export function sealKeyConfigured() {
-  return Boolean(process.env.MCP_SEAL_KEY);
+export function sealKeySource() {
+  if (process.env.MCP_SEAL_KEY) {
+    return 'MCP_SEAL_KEY';
+  }
+  if (process.env.GCP_SA_KEY_BASE64) {
+    return 'GCP_SA_KEY_BASE64';
+  }
+  return null;
 }
 
 function sealKey() {
-  const secret = process.env.MCP_SEAL_KEY;
-  if (!secret) {
-    throw new ValidationError('MCP_SEAL_KEY is not configured on the server.');
+  const source = sealKeySource();
+  if (!source) {
+    throw new ValidationError('Neither MCP_SEAL_KEY nor GCP_SA_KEY_BASE64 is configured on the server.');
   }
-  return crypto.hkdfSync('sha256', Buffer.from(secret, 'utf8'), Buffer.alloc(0), Buffer.from(KEY_INFO, 'utf8'), 32);
+  return crypto.hkdfSync(
+    'sha256',
+    Buffer.from(process.env[source], 'utf8'),
+    Buffer.alloc(0),
+    Buffer.from(`${KEY_INFO}:${source}`, 'utf8'),
+    32,
+  );
 }
 
 function assertAuthMode(value) {
