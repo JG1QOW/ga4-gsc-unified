@@ -104,6 +104,29 @@ export function fetchSites(settings: Settings): Promise<{ sites: SiteOption[] }>
   });
 }
 
+export type Ga4DatasetCandidate = {
+  dataset: string;
+  hosts: { host: string; pageViews: number }[];
+  matches: boolean;
+};
+
+export type Ga4DatasetInspection = {
+  gscHosts: { host: string; clicks: number }[];
+  candidates: Ga4DatasetCandidate[];
+};
+
+export function inspectGa4Datasets(body: {
+  project: string;
+  gscDataset: string;
+  site: string | null;
+}): Promise<Ga4DatasetInspection> {
+  return request('/api/ga4-datasets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 export function runReport(
   reportId: string,
   body: Settings & { startDate: string; endDate: string; site: string | null; threshold: number; limit: number },

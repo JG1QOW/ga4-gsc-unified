@@ -1,6 +1,19 @@
 import { buildPageTitlesQuery } from './reports.js';
 
 const MAX_LOOKUP_KEYS = 500;
+const LOOKBACK_DAYS = 30;
+
+function shiftDate(date, days) {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function titleLookupRange({ startDate, endDate }) {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    startDate: shiftDate(startDate, -LOOKBACK_DAYS),
+    endDate: endDate > today ? endDate : today,
+  };
+}
 
 function normalizePath(path) {
   let value = path;
@@ -45,11 +58,12 @@ export async function attachPageTitles({ bigquery, report, rows, options, maximu
 
   let titleRows;
   try {
+    const range = titleLookupRange(options);
     const { query, params, types } = buildPageTitlesQuery({
       project: options.project,
       ga4Dataset: options.ga4Dataset,
-      startDate: options.startDate,
-      endDate: options.endDate,
+      startDate: range.startDate,
+      endDate: range.endDate,
       pageKeys,
     });
     [titleRows] = await bigquery.query({ query, params, types, maximumBytesBilled });
@@ -72,7 +86,9 @@ export async function attachPageTitles({ bigquery, report, rows, options, maximu
     if (!reference) {
       return row;
     }
-    const title = reference.host ? byHostAndKey.get(`${reference.host}${reference.key}`) : null;
-    return { ...row, pageTitle: title ?? byKey.get(reference.key) ?? null };
+    const title = reference.host
+      ? byHostAndKey.get(`${reference.host}${reference.key}`)
+      : byKey.get(reference.key);
+    return { ...row, pageTitle: title ?? null };
   });
 }

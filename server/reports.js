@@ -62,6 +62,8 @@ function brandFromSite(site) {
 
 const SITE_HOST_EXPR = normalizedHost("REGEXP_EXTRACT(site_url, r'^(?:https?://|sc-domain:)?([^/?#]+)')");
 
+const GSC_PAGE_HOST_EXPR = `IFNULL(${normalizedHost(pageHost('url'))}, ${SITE_HOST_EXPR})`;
+
 const ORGANIC_SESSION_FILTER = `LOWER(IFNULL(session_traffic_source_last_click.manual_campaign.medium, '')) = 'organic'`;
 
 const QUERY_FILTER = `AND query IS NOT NULL AND NOT IFNULL(is_anonymized_query, FALSE)`;
@@ -108,7 +110,7 @@ function buildPeriodComparison({
 WITH sc_raw AS (
   SELECT
     ${pagePath('url')} AS page_path,
-    ${SITE_HOST_EXPR} AS page_host,
+    ${GSC_PAGE_HOST_EXPR} AS page_host,
     SUM(IF(data_date >= PARSE_DATE('%Y-%m-%d', @splitDate), clicks, 0)) AS recent_clicks,
     SUM(IF(data_date < PARSE_DATE('%Y-%m-%d', @splitDate), clicks, 0)) AS previous_clicks,
     SUM(IF(data_date >= PARSE_DATE('%Y-%m-%d', @splitDate), impressions, 0)) AS recent_impressions,
@@ -383,7 +385,7 @@ ga AS (
 sc_raw AS (
   SELECT
     ${pagePath('url')} AS page_path,
-    ${normalizedHost("REGEXP_EXTRACT(site_url, r'^(?:https?://|sc-domain:)?([^/]+)')")} AS page_host,
+    ${GSC_PAGE_HOST_EXPR} AS page_host,
     SUM(clicks) AS clicks,
     SUM(IF(search_type = 'WEB', clicks, 0)) AS search_clicks,
     SUM(IF(search_type = 'DISCOVER', clicks, 0)) AS discover_clicks
@@ -798,7 +800,7 @@ ga AS (
 sc_raw AS (
   SELECT
     ${pagePath('url')} AS page_path,
-    ${SITE_HOST_EXPR} AS page_host,
+    ${GSC_PAGE_HOST_EXPR} AS page_host,
     SUM(clicks) AS search_clicks
   FROM ${urlImpressionTable({ project, gscDataset })}
   WHERE data_date BETWEEN PARSE_DATE('%Y-%m-%d', @startDate) AND PARSE_DATE('%Y-%m-%d', @endDate)
@@ -1032,6 +1034,279 @@ LIMIT @rowLimit`,
         endDate: 'STRING',
         site: 'STRING',
         brand: 'STRING',
+        threshold: 'INT64',
+        rowLimit: 'INT64',
+      },
+    }),
+  },
+  {
+    id: 'ga4-page-overview',
+    name: 'GA4 ページ別アクセス数（基本）',
+    dataSource: 'GA4',
+    insight: 'GA4 データセットに入っているページ別の素データ',
+    priority: 1,
+    thresholdLabel: '最小ページビュー',
+    defaultThreshold: 0,
+    columns: [
+      { key: 'page', label: 'ページ', type: 'text' },
+      { key: 'pageViews', label: 'ページビュー', type: 'number' },
+      { key: 'sessions', label: 'セッション', type: 'number' },
+      { key: 'users', label: 'ユーザー', type: 'number' },
+      { key: 'avgEngagementSeconds', label: '平均滞在(秒)', type: 'decimal' },
+      { key: 'firstDate', label: '初回計測日', type: 'text' },
+      { key: 'lastDate', label: '最終計測日', type: 'text' },
+    ],
+    charts: [{ type: 'bar', title: 'ページビュー上位ページ', labelKey: 'page', valueKey: 'pageViews' }],
+    build: ({ project, ga4Dataset, startDate, endDate, site, threshold, limit }) => ({
+      query: `
+WITH events AS (
+  SELECT
+    _TABLE_SUFFIX AS event_day,
+    event_name,
+    user_pseudo_id,${GA4_EVENT_FIELDS},
+    IFNULL((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'engagement_time_msec'), 0) AS engagement_msec
+  FROM ${ga4EventsTable({ project, ga4Dataset })}
+  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+)
+SELECT
+  CONCAT(IFNULL(page_host, ''), page_path) AS page,
+  COUNTIF(event_name = 'page_view') AS pageViews,
+  COUNT(DISTINCT session_key) AS sessions,
+  COUNT(DISTINCT user_pseudo_id) AS users,
+  SAFE_DIVIDE(SUM(engagement_msec) / 1000, COUNT(DISTINCT session_key)) AS avgEngagementSeconds,
+  FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%Y%m%d', MIN(event_day))) AS firstDate,
+  FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%Y%m%d', MAX(event_day))) AS lastDate
+FROM events
+WHERE page_path IS NOT NULL
+  AND (@host IS NULL OR page_host = @host)
+GROUP BY page
+HAVING pageViews >= @threshold
+ORDER BY pageViews DESC
+LIMIT @rowLimit`,
+      params: {
+        startSuffix: toSuffix(startDate),
+        endSuffix: toSuffix(endDate),
+        host: hostFromSite(site),
+        threshold,
+        rowLimit: limit,
+      },
+      types: {
+        startSuffix: 'STRING',
+        endSuffix: 'STRING',
+        host: 'STRING',
+        threshold: 'INT64',
+        rowLimit: 'INT64',
+      },
+    }),
+  },
+  {
+    id: 'ga4-event-overview',
+    name: 'GA4 イベントログ（基本）',
+    dataSource: 'GA4',
+    insight: 'GA4 データセットに入っているイベントの種類と件数',
+    priority: 1,
+    thresholdLabel: '最小イベント数',
+    defaultThreshold: 0,
+    columns: [
+      { key: 'eventName', label: 'イベント名', type: 'text' },
+      { key: 'events', label: 'イベント数', type: 'number' },
+      { key: 'sessions', label: 'セッション', type: 'number' },
+      { key: 'users', label: 'ユーザー', type: 'number' },
+      { key: 'activeDays', label: '計測日数', type: 'number' },
+      { key: 'firstDate', label: '初回計測日', type: 'text' },
+      { key: 'lastDate', label: '最終計測日', type: 'text' },
+    ],
+    charts: [{ type: 'bar', title: 'イベント数上位', labelKey: 'eventName', valueKey: 'events' }],
+    build: ({ project, ga4Dataset, startDate, endDate, threshold, limit }) => ({
+      query: `
+WITH events AS (
+  SELECT
+    _TABLE_SUFFIX AS event_day,
+    event_name,
+    user_pseudo_id,
+    CONCAT(
+      user_pseudo_id,
+      '-',
+      CAST(IFNULL((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id'), 0) AS STRING)
+    ) AS session_key
+  FROM ${ga4EventsTable({ project, ga4Dataset })}
+  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+)
+SELECT
+  event_name AS eventName,
+  COUNT(*) AS events,
+  COUNT(DISTINCT session_key) AS sessions,
+  COUNT(DISTINCT user_pseudo_id) AS users,
+  COUNT(DISTINCT event_day) AS activeDays,
+  FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%Y%m%d', MIN(event_day))) AS firstDate,
+  FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%Y%m%d', MAX(event_day))) AS lastDate
+FROM events
+GROUP BY eventName
+HAVING events >= @threshold
+ORDER BY events DESC
+LIMIT @rowLimit`,
+      params: {
+        startSuffix: toSuffix(startDate),
+        endSuffix: toSuffix(endDate),
+        threshold,
+        rowLimit: limit,
+      },
+      types: {
+        startSuffix: 'STRING',
+        endSuffix: 'STRING',
+        threshold: 'INT64',
+        rowLimit: 'INT64',
+      },
+    }),
+  },
+  {
+    id: 'ga4-daily-traffic',
+    name: 'GA4 日別アクセス数（基本）',
+    dataSource: 'GA4',
+    insight: 'GA4 データセットの日別のセッション・ユーザー数',
+    priority: 1,
+    thresholdLabel: '最小セッション',
+    defaultThreshold: 0,
+    columns: [
+      { key: 'date', label: '日付', type: 'text' },
+      { key: 'pageViews', label: 'ページビュー', type: 'number' },
+      { key: 'sessions', label: 'セッション', type: 'number' },
+      { key: 'users', label: 'ユーザー', type: 'number' },
+      { key: 'pages', label: 'ページ数', type: 'number' },
+      { key: 'engagementRate', label: 'エンゲージメント率', type: 'percent' },
+    ],
+    charts: [{ type: 'bar', title: '日別セッション', labelKey: 'date', valueKey: 'sessions' }],
+    build: ({ project, ga4Dataset, startDate, endDate, site, threshold, limit }) => ({
+      query: `
+WITH events AS (
+  SELECT
+    _TABLE_SUFFIX AS event_day,
+    event_name,
+    user_pseudo_id,${GA4_EVENT_FIELDS},
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') AS session_engaged
+  FROM ${ga4EventsTable({ project, ga4Dataset })}
+  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+)
+SELECT
+  FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%Y%m%d', event_day)) AS date,
+  COUNTIF(event_name = 'page_view') AS pageViews,
+  COUNT(DISTINCT session_key) AS sessions,
+  COUNT(DISTINCT user_pseudo_id) AS users,
+  COUNT(DISTINCT page_path) AS pages,
+  SAFE_DIVIDE(
+    COUNT(DISTINCT IF(session_engaged = '1', session_key, NULL)),
+    COUNT(DISTINCT session_key)
+  ) AS engagementRate
+FROM events
+WHERE @host IS NULL OR page_host = @host OR page_host IS NULL
+GROUP BY event_day
+HAVING sessions >= @threshold
+ORDER BY date DESC
+LIMIT @rowLimit`,
+      params: {
+        startSuffix: toSuffix(startDate),
+        endSuffix: toSuffix(endDate),
+        host: hostFromSite(site),
+        threshold,
+        rowLimit: limit,
+      },
+      types: {
+        startSuffix: 'STRING',
+        endSuffix: 'STRING',
+        host: 'STRING',
+        threshold: 'INT64',
+        rowLimit: 'INT64',
+      },
+    }),
+  },
+  {
+    id: 'gsc-daily-queries',
+    name: 'GSC 日別検索キーワード（基本）',
+    dataSource: 'SC',
+    insight: 'Search Console データセットの日別・検索語別の素データ',
+    priority: 1,
+    thresholdLabel: '最小表示回数',
+    defaultThreshold: 0,
+    columns: [
+      { key: 'date', label: '日付', type: 'text' },
+      { key: 'query', label: '検索キーワード', type: 'text' },
+      { key: 'impressions', label: '表示', type: 'number' },
+      { key: 'clicks', label: 'クリック', type: 'number' },
+      { key: 'ctr', label: 'CTR', type: 'percent' },
+      { key: 'avgPosition', label: '平均順位', type: 'decimal' },
+      { key: 'pages', label: 'ページ数', type: 'number' },
+    ],
+    charts: [{ type: 'bar', title: '表示上位キーワード', labelKey: 'query', valueKey: 'impressions' }],
+    build: ({ project, gscDataset, startDate, endDate, site, threshold, limit }) => ({
+      query: `
+SELECT
+  FORMAT_DATE('%Y-%m-%d', data_date) AS date,
+  query,
+  SUM(impressions) AS impressions,
+  SUM(clicks) AS clicks,
+  SAFE_DIVIDE(SUM(clicks), SUM(impressions)) AS ctr,
+  SAFE_DIVIDE(SUM(sum_position), SUM(impressions)) + 1 AS avgPosition,
+  COUNT(DISTINCT url) AS pages
+FROM ${urlImpressionTable({ project, gscDataset })}
+WHERE data_date BETWEEN PARSE_DATE('%Y-%m-%d', @startDate) AND PARSE_DATE('%Y-%m-%d', @endDate)
+  AND (@site IS NULL OR site_url = @site)
+  ${QUERY_FILTER}
+GROUP BY date, query
+HAVING impressions >= @threshold
+ORDER BY date DESC, impressions DESC
+LIMIT @rowLimit`,
+      params: { startDate, endDate, site, threshold, rowLimit: limit },
+      types: {
+        startDate: 'STRING',
+        endDate: 'STRING',
+        site: 'STRING',
+        threshold: 'INT64',
+        rowLimit: 'INT64',
+      },
+    }),
+  },
+  {
+    id: 'gsc-daily-summary',
+    name: 'GSC 日別サマリー（基本）',
+    dataSource: 'SC',
+    insight: 'Search Console データセットの日別の総表示・クリック',
+    priority: 1,
+    thresholdLabel: '最小表示回数',
+    defaultThreshold: 0,
+    columns: [
+      { key: 'date', label: '日付', type: 'text' },
+      { key: 'impressions', label: '表示', type: 'number' },
+      { key: 'clicks', label: 'クリック', type: 'number' },
+      { key: 'ctr', label: 'CTR', type: 'percent' },
+      { key: 'avgPosition', label: '平均順位', type: 'decimal' },
+      { key: 'pages', label: 'ページ数', type: 'number' },
+      { key: 'queries', label: '検索語数', type: 'number' },
+      { key: 'searchTypes', label: '検索タイプ', type: 'text' },
+    ],
+    charts: [{ type: 'bar', title: '日別クリック', labelKey: 'date', valueKey: 'clicks' }],
+    build: ({ project, gscDataset, startDate, endDate, site, threshold, limit }) => ({
+      query: `
+SELECT
+  FORMAT_DATE('%Y-%m-%d', data_date) AS date,
+  SUM(impressions) AS impressions,
+  SUM(clicks) AS clicks,
+  SAFE_DIVIDE(SUM(clicks), SUM(impressions)) AS ctr,
+  SAFE_DIVIDE(SUM(sum_position), SUM(impressions)) + 1 AS avgPosition,
+  COUNT(DISTINCT url) AS pages,
+  COUNT(DISTINCT query) AS queries,
+  STRING_AGG(DISTINCT search_type ORDER BY search_type) AS searchTypes
+FROM ${urlImpressionTable({ project, gscDataset })}
+WHERE data_date BETWEEN PARSE_DATE('%Y-%m-%d', @startDate) AND PARSE_DATE('%Y-%m-%d', @endDate)
+  AND (@site IS NULL OR site_url = @site)
+GROUP BY date
+HAVING impressions >= @threshold
+ORDER BY date DESC
+LIMIT @rowLimit`,
+      params: { startDate, endDate, site, threshold, rowLimit: limit },
+      types: {
+        startDate: 'STRING',
+        endDate: 'STRING',
+        site: 'STRING',
         threshold: 'INT64',
         rowLimit: 'INT64',
       },

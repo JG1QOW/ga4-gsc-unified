@@ -613,3 +613,20 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.dataset-finder {
+  margin-top: 6px;
+}
+
+.dataset-candidates {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dataset-candidate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
