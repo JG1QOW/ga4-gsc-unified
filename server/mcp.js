@@ -1,5 +1,6 @@
 import { ValidationError } from './bigquery.js';
 import { buildReportQuery, buildSitesQuery, reportCatalog } from './reports.js';
+import { attachPageTitles } from './page-titles.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_NAME = 'ga4-gsc-unified';
@@ -69,7 +70,7 @@ async function describeTables(bigquery, instance, args) {
 }
 
 async function runReport(bigquery, instance, args) {
-  const { report, query, params, types } = buildReportQuery(args.reportId, {
+  const options = {
     project: instance.project,
     ga4Dataset: instance.ga4Dataset,
     gscDataset: instance.gscDataset,
@@ -78,7 +79,8 @@ async function runReport(bigquery, instance, args) {
     site: args.site,
     threshold: numberOrUndefined(args.threshold),
     limit: numberOrUndefined(args.limit),
-  });
+  };
+  const { report, query, params, types } = buildReportQuery(args.reportId, options);
   const [rows, , metadata] = await bigquery.query({
     query,
     params,
@@ -89,7 +91,13 @@ async function runReport(bigquery, instance, args) {
     reportId: report.id,
     name: report.name,
     columns: report.columns,
-    rows,
+    rows: await attachPageTitles({
+      bigquery,
+      report,
+      rows,
+      options,
+      maximumBytesBilled: MAX_BYTES_BILLED,
+    }),
     bytesProcessed: Number(metadata?.totalBytesProcessed ?? 0),
   };
 }
