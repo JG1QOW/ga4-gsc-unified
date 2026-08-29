@@ -6,7 +6,9 @@ import ScatterChart from '../components/ScatterChart';
 import {
   fetchReportCatalog,
   fetchSites,
+  inspectGa4Datasets,
   runReport,
+  type Ga4DatasetInspection,
   type ReportDefinition,
   type ReportResult,
   type SiteOption,
@@ -41,6 +43,7 @@ export default function Analytics() {
   const [result, setResult] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inspection, setInspection] = useState<Ga4DatasetInspection | null>(null);
 
   const units = useMemo(() => (settings ? resolveUnits(settings, catalog) : []), [settings, catalog]);
   const selectedUnit = units.find((entry) => entry.unit.id === unitId) ?? units[0] ?? null;
@@ -51,6 +54,11 @@ export default function Analytics() {
     result.rows.length > 0 &&
     result.columns.some((column) => column.key === 'sessions') &&
     result.rows.every((row) => row.sessions === null || row.sessions === undefined);
+
+  const suggestedDataset =
+    inspection?.candidates.find(
+      (candidate) => candidate.matches && candidate.dataset !== settings?.ga4Dataset,
+    ) ?? null;
 
   useEffect(() => {
     fetchReportCatalog()
@@ -73,10 +81,20 @@ export default function Analytics() {
   }, [unitId]);
 
   useEffect(() => {
+    if (!ga4Unmatched || !settings) {
+      return;
+    }
+    inspectGa4Datasets({ project: settings.project, gscDataset: settings.gscDataset, site: site || null })
+      .then(setInspection)
+      .catch(() => setInspection(null));
+  }, [ga4Unmatched, settings, site]);
+
+  useEffect(() => {
     setResult(null);
     setUnitId('');
     setSite('');
     setSites([]);
+    setInspection(null);
     if (siteConfigId) {
       saveActiveSiteId(siteConfigId);
     }
@@ -255,8 +273,18 @@ export default function Analytics() {
           ) : null}
           {ga4Unmatched ? (
             <p className="alert">
-              GSC のクリックに対応する GA4 のページが見つかりません。Settings の GA4 Dataset がこのサイトのプロパティか、
-              選択したサイトとドメインが一致しているかを確認してください。
+              GSC のクリックに対応する GA4 のページが見つかりません（GSC のドメイン:{' '}
+              {inspection?.gscHosts.map((entry) => entry.host).join(', ') ?? '取得中…'}、現在の GA4 Dataset:{' '}
+              {settings?.ga4Dataset}）。
+              {suggestedDataset ? (
+                <>
+                  {' '}
+                  ドメインが一致する GA4 Dataset は <strong>{suggestedDataset.dataset}</strong>（
+                  {suggestedDataset.hosts.map((entry) => entry.host).join(', ')}）です。Settings で切り替えてください。
+                </>
+              ) : (
+                ' Settings の「GA4 Dataset を検出」で、このサイトのドメインを持つデータセットを確認してください。'
+              )}
             </p>
           ) : null}
         </section>

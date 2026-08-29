@@ -4,6 +4,7 @@ import express from 'express';
 import { createBigQueryClient, ValidationError } from './bigquery.js';
 import { buildReportQuery, buildSitesQuery, reportCatalog } from './reports.js';
 import { attachPageTitles } from './page-titles.js';
+import { inspectGa4Datasets } from './ga4-datasets.js';
 import { handleMcpRequest, mcpInstanceInfo } from './mcp.js';
 import { authorizeMcpEndpoint, createMcpEndpoint, sealKeySource } from './mcp-seal.js';
 
@@ -74,6 +75,18 @@ app.post('/api/reports/:reportId', async (req, res) => {
       rows: await attachPageTitles({ bigquery, report, rows, options }),
       bytesProcessed: Number(metadata?.totalBytesProcessed ?? 0),
     });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+app.post('/api/ga4-datasets', async (req, res) => {
+  if (!requireBigQuery(res)) {
+    return;
+  }
+  try {
+    const { project, gscDataset, site } = req.body ?? {};
+    res.json(await inspectGa4Datasets(bigquery, { project, gscDataset, site }));
   } catch (error) {
     handleError(res, error);
   }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchReportCatalog, type ReportDefinition } from '../lib/api';
 import McpServerPanel from '../components/McpServerPanel';
+import Ga4DatasetFinder from '../components/Ga4DatasetFinder';
 import {
   createUnit,
   DEFAULT_UNIT_LIMIT,
@@ -166,6 +167,14 @@ export default function Settings() {
                     autoComplete="off"
                   />
                   <p className={error ? 'form-help is-error' : 'form-help'}>{error ?? field.help}</p>
+                  {field.key === 'ga4Dataset' ? (
+                    <Ga4DatasetFinder
+                      project={site.project}
+                      ga4Dataset={site.ga4Dataset}
+                      gscDataset={site.gscDataset}
+                      onSelect={(dataset) => updateSite(site.id, 'ga4Dataset', dataset)}
+                    />
+                  ) : null}
                 </div>
               );
             })}
