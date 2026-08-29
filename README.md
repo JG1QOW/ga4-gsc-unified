@@ -66,6 +66,8 @@ GA4（Google Analytics 4）と GSC（Google Search Console）のデータを統�
 
 「ページ」列を持つレポートのページタイトルは、レポート実行後に GA4 の `page_view` の `page_title` を引いて付与します。GSC 側のページと突き合わせるためホストとパスを正規化して一致を取り、探索期間はレポート期間の 30 日前から当日までに広げます（レポート期間内に `page_view` が無いページでもタイトルを拾うため）。
 
+GA4 のワイルドカード `events_*` は日次テーブル `events_YYYYMMDD` と当日分の `events_intraday_YYYYMMDD` の両方に一致します。期間の絞り込みは `_TABLE_SUFFIX` から末尾の 8 桁を取り出した日付で行うため、`events_intraday_*` しか無いデータセットでもレポートを表示できます。同じ日の日次テーブルと intraday テーブルが両方ある場合は、二重計上を避けるため日次テーブルのみを使います。
+
 前提とするテーブルは GSC 側が `<GSC Dataset>.searchdata_url_impression`（`data_date`, `site_url`, `url`, `query`, `is_anonymized_query`, `search_type`, `impressions`, `clicks`, `sum_position`）、GA4 側が `<GA4 Dataset>.events_*`（`event_name`, `event_timestamp`, `user_pseudo_id`, `event_params`）です。
 
 ## API

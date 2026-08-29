@@ -20,7 +20,7 @@ async function ga4Hosts(bigquery, project, dataset) {
 FROM (
   SELECT ${hostExpr("(SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location')")} AS host
   FROM \`${project}.${dataset}.events_*\`
-  WHERE _TABLE_SUFFIX >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL ${LOOKBACK_DAYS} DAY))
+  WHERE REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d{8})$') >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL ${LOOKBACK_DAYS} DAY))
     AND event_name = 'page_view'
 )
 WHERE host IS NOT NULL
