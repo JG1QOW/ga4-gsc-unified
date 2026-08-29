@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { createBigQueryClient, ValidationError } from './bigquery.js';
 import { buildReportQuery, buildSitesQuery, reportCatalog } from './reports.js';
+import { attachPageTitles } from './page-titles.js';
 import { handleMcpRequest, mcpInstanceInfo } from './mcp.js';
 import { authorizeMcpEndpoint, createMcpEndpoint, sealKeySource } from './mcp-seal.js';
 
@@ -64,12 +65,13 @@ app.post('/api/reports/:reportId', async (req, res) => {
     return;
   }
   try {
-    const { report, query, params, types } = buildReportQuery(req.params.reportId, req.body ?? {});
+    const options = req.body ?? {};
+    const { report, query, params, types } = buildReportQuery(req.params.reportId, options);
     const [rows, , metadata] = await bigquery.query({ query, params, types });
     res.json({
       reportId: report.id,
       columns: report.columns,
-      rows,
+      rows: await attachPageTitles({ bigquery, report, rows, options }),
       bytesProcessed: Number(metadata?.totalBytesProcessed ?? 0),
     });
   } catch (error) {

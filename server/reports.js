@@ -66,14 +66,16 @@ const ORGANIC_SESSION_FILTER = `LOWER(IFNULL(session_traffic_source_last_click.m
 
 const QUERY_FILTER = `AND query IS NOT NULL AND NOT IFNULL(is_anonymized_query, FALSE)`;
 
+const PAGE_LOCATION_EXPR = "(SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location')";
+
 const GA4_EVENT_FIELDS = `
     CONCAT(
       user_pseudo_id,
       '-',
       CAST(IFNULL((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id'), 0) AS STRING)
     ) AS session_key,
-    ${pagePath("(SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location')")} AS page_path,
-    ${normalizedHost(pageHost("(SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location')"))} AS page_host`;
+    ${pagePath(PAGE_LOCATION_EXPR)} AS page_path,
+    ${normalizedHost(pageHost(PAGE_LOCATION_EXPR))} AS page_host`;
 
 function buildPeriodComparison({
   project,
@@ -196,7 +198,7 @@ LIMIT @rowLimit`,
   };
 }
 
-export const REPORTS = [
+const REPORT_DEFINITIONS = [
   {
     id: 'discover-lifecycle',
     name: 'Discoverページライフサイクル',
@@ -1036,6 +1038,60 @@ LIMIT @rowLimit`,
     }),
   },
 ];
+
+function withPageTitleColumn(report) {
+  const pageIndex = report.columns.findIndex((column) => column.key === 'page');
+  if (pageIndex < 0) {
+    return report;
+  }
+  const columns = [...report.columns];
+  columns.splice(pageIndex + 1, 0, { key: 'pageTitle', label: 'ページタイトル', type: 'text' });
+  return { ...report, columns };
+}
+
+export const REPORTS = REPORT_DEFINITIONS.map(withPageTitleColumn);
+
+export function buildPageTitlesQuery({ project, ga4Dataset, startDate, endDate, pageKeys }) {
+  assertProjectId(project);
+  assertDatasetId(ga4Dataset, 'ga4Dataset');
+  assertDate(startDate, 'startDate');
+  assertDate(endDate, 'endDate');
+  return {
+    query: `${NORM_PATH_UDF}
+WITH page_views AS (
+  SELECT
+    ${pagePath(PAGE_LOCATION_EXPR)} AS page_path,
+    ${normalizedHost(pageHost(PAGE_LOCATION_EXPR))} AS page_host,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_title') AS page_title
+  FROM ${ga4EventsTable({ project, ga4Dataset })}
+  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+    AND event_name = 'page_view'
+),
+title_counts AS (
+  SELECT page_host, normPath(page_path) AS page_key, page_title, COUNT(*) AS views
+  FROM page_views
+  WHERE page_path IS NOT NULL AND page_title IS NOT NULL AND page_title != ''
+  GROUP BY page_host, page_key, page_title
+)
+SELECT
+  page_host AS pageHost,
+  page_key AS pageKey,
+  ARRAY_AGG(page_title ORDER BY views DESC LIMIT 1)[SAFE_OFFSET(0)] AS pageTitle
+FROM title_counts
+WHERE page_key IN UNNEST(@pageKeys)
+GROUP BY page_host, page_key`,
+    params: {
+      startSuffix: toSuffix(startDate),
+      endSuffix: toSuffix(endDate),
+      pageKeys,
+    },
+    types: {
+      startSuffix: 'STRING',
+      endSuffix: 'STRING',
+      pageKeys: ['STRING'],
+    },
+  };
+}
 
 export function reportCatalog() {
   return REPORTS.map(
