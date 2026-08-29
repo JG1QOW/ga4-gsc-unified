@@ -19,6 +19,20 @@ function ga4EventsTable({ project, ga4Dataset }) {
   return `\`${project}.${ga4Dataset}.events_*\``;
 }
 
+const GA4_EVENT_DAY_EXPR = "REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d{8})$')";
+
+function ga4DailyTableDays({ project, ga4Dataset }) {
+  return `SELECT REGEXP_EXTRACT(table_name, r'(\\d{8})$')
+      FROM \`${project}.${ga4Dataset}.INFORMATION_SCHEMA.TABLES\`
+      WHERE REGEXP_CONTAINS(table_name, r'^events_\\d{8}$')`;
+}
+
+function ga4EventDayFilter({ project, ga4Dataset }) {
+  return `${GA4_EVENT_DAY_EXPR} BETWEEN @startSuffix AND @endSuffix
+    AND (NOT STARTS_WITH(_TABLE_SUFFIX, 'intraday_')
+      OR ${GA4_EVENT_DAY_EXPR} NOT IN (${ga4DailyTableDays({ project, ga4Dataset })}))`;
+}
+
 function toSuffix(date) {
   return date.replace(/-/g, '');
 }
@@ -140,7 +154,7 @@ events AS (
   SELECT${GA4_EVENT_FIELDS},
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') AS session_engaged
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
 ),
 ga_raw AS (
   SELECT
@@ -356,7 +370,7 @@ WITH events AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') AS session_engaged,
     IFNULL((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'engagement_time_msec'), 0) AS engagement_msec
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
 ),
 ga_raw AS (
   SELECT
@@ -465,7 +479,7 @@ WITH page_views AS (
   SELECT
     event_timestamp,${GA4_EVENT_FIELDS}
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
     AND event_name = 'page_view'
 ),
 sequenced AS (
@@ -755,7 +769,7 @@ WITH events AS (
     event_timestamp,${GA4_EVENT_FIELDS},
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') AS session_engaged
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
     AND ${ORGANIC_SESSION_FILTER}
 ),
 page_views AS (
@@ -874,7 +888,7 @@ WITH events AS (
     event_name,
     event_timestamp,${GA4_EVENT_FIELDS}
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
 ),
 user_stats AS (
   SELECT
@@ -1061,12 +1075,12 @@ LIMIT @rowLimit`,
       query: `
 WITH events AS (
   SELECT
-    _TABLE_SUFFIX AS event_day,
+    ${GA4_EVENT_DAY_EXPR} AS event_day,
     event_name,
     user_pseudo_id,${GA4_EVENT_FIELDS},
     IFNULL((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'engagement_time_msec'), 0) AS engagement_msec
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
 )
 SELECT
   CONCAT(IFNULL(page_host, ''), page_path) AS page,
@@ -1121,7 +1135,7 @@ LIMIT @rowLimit`,
       query: `
 WITH events AS (
   SELECT
-    _TABLE_SUFFIX AS event_day,
+    ${GA4_EVENT_DAY_EXPR} AS event_day,
     event_name,
     user_pseudo_id,
     CONCAT(
@@ -1130,7 +1144,7 @@ WITH events AS (
       CAST(IFNULL((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id'), 0) AS STRING)
     ) AS session_key
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
 )
 SELECT
   event_name AS eventName,
@@ -1180,12 +1194,12 @@ LIMIT @rowLimit`,
       query: `
 WITH events AS (
   SELECT
-    _TABLE_SUFFIX AS event_day,
+    ${GA4_EVENT_DAY_EXPR} AS event_day,
     event_name,
     user_pseudo_id,${GA4_EVENT_FIELDS},
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') AS session_engaged
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
 )
 SELECT
   FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%Y%m%d', event_day)) AS date,
@@ -1339,7 +1353,7 @@ WITH page_views AS (
     ${normalizedHost(pageHost(PAGE_LOCATION_EXPR))} AS page_host,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_title') AS page_title
   FROM ${ga4EventsTable({ project, ga4Dataset })}
-  WHERE _TABLE_SUFFIX BETWEEN @startSuffix AND @endSuffix
+  WHERE ${ga4EventDayFilter({ project, ga4Dataset })}
     AND event_name = 'page_view'
 ),
 title_counts AS (
