@@ -13,7 +13,8 @@ import {
   type ReportResult,
   type SiteOption,
 } from '../lib/api';
-import { activeSite, isComplete, loadStore, saveActiveSiteId, siteLabel } from '../lib/settings';
+import { isComplete } from '../lib/settings';
+import { useSiteSelection } from '../lib/siteSelection';
 import { resolveUnits } from '../lib/units';
 
 function toDateInput(date: Date): string {
@@ -29,9 +30,8 @@ function defaultRange(): { startDate: string; endDate: string } {
 }
 
 export default function Analytics() {
-  const store = useMemo(() => loadStore(), []);
-  const [siteConfigId, setSiteConfigId] = useState<string>(() => activeSite(store)?.id ?? '');
-  const settings = store.sites.find((site) => site.id === siteConfigId) ?? null;
+  const { selectedSite: settings } = useSiteSelection();
+  const siteConfigId = settings?.id ?? '';
   const configured = settings !== null && isComplete(settings);
 
   const [range, setRange] = useState(defaultRange);
@@ -95,9 +95,6 @@ export default function Analytics() {
     setSite('');
     setSites([]);
     setInspection(null);
-    if (siteConfigId) {
-      saveActiveSiteId(siteConfigId);
-    }
   }, [siteConfigId]);
 
   const handleRun = async () => {
@@ -148,22 +145,6 @@ export default function Analytics() {
               {settings.project} ／ GA4: {settings.ga4Dataset} ／ GSC: {settings.gscDataset}
             </p>
           </div>
-          {store.sites.length > 1 ? (
-            <label className="filter">
-              <span className="filter-label">登録サイト</span>
-              <select
-                className="input"
-                value={siteConfigId}
-                onChange={(event) => setSiteConfigId(event.target.value)}
-              >
-                {store.sites.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {siteLabel(option)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
         </header>
 
         {units.length === 0 ? (
