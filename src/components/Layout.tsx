@@ -1,11 +1,40 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { siteLabel } from '../lib/settings';
+import { useSiteSelection } from '../lib/siteSelection';
 
 const NAV_ITEMS = [
   { to: '/settings', label: 'Settings' },
   { to: '/analytics', label: 'Analytics' },
 ];
 
+function SiteSwitcher() {
+  const { sites, selectedSite, selectSite } = useSiteSelection();
+
+  if (sites.length === 0) {
+    return null;
+  }
+
+  return (
+    <label className="topbar-site">
+      <span className="topbar-site-label">サイト</span>
+      <select
+        className="input topbar-site-select"
+        value={selectedSite?.id ?? ''}
+        onChange={(event) => selectSite(event.target.value)}
+      >
+        {sites.map((site) => (
+          <option key={site.id} value={site.id}>
+            {siteLabel(site)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export default function Layout() {
+  const { pathname } = useLocation();
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -28,6 +57,7 @@ export default function Layout() {
       <div className="main">
         <header className="topbar">
           <h1 className="topbar-title">GA4 GSC Unified</h1>
+          {pathname === '/analytics' ? <SiteSwitcher /> : null}
         </header>
         <main className="content">
           <Outlet />
