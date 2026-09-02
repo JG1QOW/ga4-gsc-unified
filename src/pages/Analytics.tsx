@@ -214,6 +214,17 @@ export default function Analytics() {
           </button>
         </div>
 
+        {selectedReport && selectedReport.methodology.length > 0 ? (
+          <details className="methodology">
+            <summary className="methodology-summary">集計方法の詳細（{selectedReport.name}）</summary>
+            <ul className="methodology-list">
+              {selectedReport.methodology.map((line, index) => (
+                <li key={index}>{line}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
         {error ? <p className="alert">{error}</p> : null}
       </section>
 
