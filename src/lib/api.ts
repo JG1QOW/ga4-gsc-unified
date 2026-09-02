@@ -33,6 +33,7 @@ export type ReportDefinition = {
   priority: number;
   thresholdLabel: string;
   defaultThreshold: number;
+  methodology: string[];
   columns: ReportColumn[];
   charts: ChartSpec[];
 };
